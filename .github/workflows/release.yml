@@ -121,7 +121,9 @@ jobs:
           test -f "$apk"
           apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)"
           "$apksigner" verify --print-certs "$apk" | tee signature.txt
-          actual="$(awk -F': ' '/certificate SHA-256 digest/ {print tolower($2); exit}' signature.txt)"
+          # "V2 Signer: certificate SHA-256 digest: <hex>": the digest is the
+          # third colon-separated field, not the second.
+          actual="$(awk -F': ' '/certificate SHA-256 digest/ {print tolower($3); exit}' signature.txt)"
           if [ "$actual" != "$EXPECTED_CERT_SHA256" ]; then
             echo "the APK was signed with the wrong key: $actual" >&2
             exit 1
