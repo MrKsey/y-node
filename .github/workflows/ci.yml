@@ -65,10 +65,15 @@ jobs:
           cache: true
           cache-dependency-path: go-bridge/go.sum
 
-      - uses: android-actions/setup-android@v3
-
       - name: Android NDK
         run: |
+          # The runner has the SDK and cmdline-tools, but sdkmanager is not on
+          # PATH and android-actions/setup-android fails on the removed "tools"
+          # package, so the tool is located directly.
+          for dir in "$ANDROID_HOME"/cmdline-tools/*/bin; do
+            if [ -x "$dir/sdkmanager" ]; then export PATH="$dir:$PATH"; fi
+          done
+          command -v sdkmanager
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager --install "ndk;${NDK_VERSION}" "build-tools;${BUILD_TOOLS}" "platforms;android-${COMPILE_SDK}" >/dev/null
 

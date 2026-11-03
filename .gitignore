@@ -63,4 +63,8 @@ key.properties
 # is kept locally as a reference and is not part of the Android client.
 /server/
 
+# Local working notes for the AI agent: they contain server addresses and
+# operational details and are not published.
+/AI-AGENT-BRIEF.md
+
 
