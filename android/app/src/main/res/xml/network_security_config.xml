@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The app talks to GitHub and yggwiki over HTTPS. The only cleartext endpoint
+     is ip-api.com, which is the free GeoIP provider and has no HTTPS tier; it is
+     allowed for that host alone. Yggdrasil resources themselves are opened in an
+     external browser, not fetched by the app. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">ip-api.com</domain>
+    </domain-config>
+</network-security-config>

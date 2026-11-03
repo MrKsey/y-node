@@ -1,0 +1,66 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Widget Preview related
+.widget_preview/
+
+# The Go bridge is built by tool/build_aar.ps1 and by CI; the 18 MB binary is
+# not part of the repository.
+/android/app/libs/*.aar
+
+# Local toolchains (gomobile, JDK, SDK) installed into the workspace.
+/.tools/
+
+# Release signing material
+*.jks
+*.keystore
+key.properties
+
+# The exit node moved to the separate X-Node repository. The old ygg-exit tree
+# is kept locally as a reference and is not part of the Android client.
+/server/
+
+

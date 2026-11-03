@@ -1,0 +1,170 @@
+====== Различные внутрисетевые сервисы ======
+
+На этой странице содержатся различные внутрисетевые сервисы, не попавшие в [[http://[21e:a51c:885b:7db0:166e:927:98cd:d186]/categories.html|каталог внутрисетевых сайтов]] и на отдельные страницы [[this>/|этой wiki]].
+
+
+===== Torrent =====
+
+==== Каталоги ====
+
+^ Адрес ^  Доменное имя ([[yggdrasil:dns:ALFIS|ALFIS]])  ^ Администратор  ^  Комментарий  ^
+|http://[321:c99a:91a1:cd2c::16]/|  rutor.ygg  |  -  | Зеркало [[http://rutor.info/|Rutor]]  |
+|http://[321:c99a:91a1:cd2c::18]/forum/index.php|  rutracker.ygg  |  -  | Зеркало [[https://rutracker.org/|Rutracker]]  |
+==== Трекеры ====
+
+^ Адрес ^  Доменное имя ([[yggdrasil:dns:ALFIS|ALFIS]])  ^ Администратор  ^  Комментарий  ^
+|http://[316:c51a:62a3:8b9::5]/announce|  retracker.ygg  |  R4SAS  |  Статистика доступна по [[http://[316:c51a:62a3:8b9::5]/stats|ссылке]]  |
+|http://[200:1e2f:e608:eb3a:2bf:1e62:87ba:e2f7]/announce|  -  |  jeff  |  Статистика доступна по [[http://[200:1e2f:e608:eb3a:2bf:1e62:87ba:e2f7]/stats|ссылке]]  |
+|http://[21e:6565:9c87:a49d:dafa:92c1:b33f:f21]:1337/announce|  -  |  -  |  Статистика доступна по [[ http://[21e:6565:9c87:a49d:dafa:92c1:b33f:f21]:1337/stats |ссылке]]  |
+|http://[202:68d0:f0d5:b88d:1d1a:555e:2f6b:3148]:6969/announce|  -  |  p.s.  |  Статистика доступна по [[http://[202:68d0:f0d5:b88d:1d1a:555e:2f6b:3148]:6969|ссылке]]  |
+|[[udp://[202:68d0:f0d5:b88d:1d1a:555e:2f6b:3148]:6969]]|  -  |  p.s.  |  Статистика доступна по [[http://[202:68d0:f0d5:b88d:1d1a:555e:2f6b:3148]:6969|ссылке]]  |
+
+Список трекеров Yggdrasil в "[[https://github.com/ngosang/trackerslist|Updated list of public BitTorrent trackers]]"
+    * [[https://github.com/ngosang/trackerslist/blob/master/trackers_all_yggdrasil.txt|trackers_all_yggdrasil.txt]]
+    * [[https://github.com/ngosang/trackerslist/blob/master/trackers_all_yggdrasil_ip.txt|trackers_all_yggdrasil_ip.txt]]
+===== Out Proxy =====
+
+^  IP-адрес  ^  Порт  ^  Доменное имя ([[yggdrasil:dns:ALFIS|ALFIS]])  ^  Администратор  ^  Комментарий  ^  Location  ^
+|<del>324:71e:281a:9ed3::fa11</del>|  <del>1080</del>  |  <del>acetone.ygg</del>  |  <del>[[user:acetone]]</del>  |<del>SOCKS: Интернет, [[wpru>TOR]], [[:I2P]]</del>|
+|<del>324:71e:281a:9ed3::fa11</del>|  <del>3128</del>  |  <del>acetone.ygg</del>  |  <del>[[user:acetone]]</del>  |<del>HTTP: Интернет, [[wpru>TOR]], [[:I2P]]</del>|
+|322:cde2:8ec2:294e::5|  1080  |  -  |  [[user:Altron]]  |SOCKS 5 (Clearnet IPv4). Allowed only TCP 80,443,853,9001|Amsterdam, Netherlands|
+
+Примечание: добавьте подсеть [200::]/7 в список исключений прокси при использовании браузера Firefox.
+
+===== Wireguard VPN =====
+
+^  Config generator URL  ^  Администратор  ^  Комментарий  ^  Location  ^
+|http://[322:cde2:8ec2:294e::6]/|  [[user:Altron]]  |Clearnet. Allowed only TCP: 80,443,853,9001. UDP: 53,123,443|Amsterdam, Netherlands|
+
+===== Мосты Tor =====
+^  Строка моста  ^  Администратор  ^  Домашняя страница  ^
+|[21b:321:3243:ecb6:a4cf:289c:c0f1:d6eb]:16728 835FFE642EFA3BB7936663D2365A15D319FB6226  | [[https://github.com/Vort|Vort]] | http://[21b:321:3243:ecb6:a4cf:289c:c0f1:d6eb] |
+|[21f:5234:5548:31e5:a334:854b:5752:f4fc]:9770 6C4C89ABE4D06987AB1F51C06939410282A1BF58  | tbxv | http://[21f:5234:5548:31e5:a334:854b:5752:f4fc] |
+|obfs4 [218:4feb:a509:9db2:2b34:6e7e:e071:5dee]:1992 F805F6B4E5E203EFE2A7FFB1E5042AFE8BD986B4 cert=0GcjnEnZ0rJ8/nfxo4ZSkjMZ0fqHSrvj/MdwEtbbuzx8qgqFTaqHTuWelGw2MxJ5wW2QaQ iat-mode=0  | [[https://github.com/marek22k|Marek Küthe]] | https://p2p-node.de |
+|[218:4feb:a509:9db2:2b34:6e7e:e071:5dee]:1991 F805F6B4E5E203EFE2A7FFB1E5042AFE8BD986B4  | [[https://github.com/marek22k|Marek Küthe]] | https://p2p-node.de |
+|[200:ba50:4b2c:8dc9:9529:38de:5677:57a0]:7918  | [[https://t.me/valeriusN|valeriusN]] | - |
+|[200:ba50:4b2c:8dc9:9529:38de:5677:57a0]:7918 79F9F7CBD0E2A4458F11B7874008D783BCF5C523  | [[https://t.me/valeriusN|valeriusN]] | - |
+|[220:f022:cd6c:22a9:5285:79e2:2e19:b66a]:1991 6580023D474DD3C06920027530C3B5E39B89DC03  | - | - |
+|[219:a32f:307b:8372:25d3:e1d0:c8fb:d2f6]:1991 49A53936AF2895A1612603AAA3C1CF8A01830157  | - | - |
+
+===== Telegram Proxy =====
+^  IP-адрес  ^  Порт  ^  Доменное имя ([[yggdrasil:dns:ALFIS|ALFIS]])  ^  Администратор  ^  Комментарий  ^
+|208:84:68:55:2f91:8484:8d60:2fca|  8843  |  telegram-proxy.ygg  |  [[user:rev|Revertron]]  |Ключ в [[https://t.me/proxy?server=208:84:68:55:2f91:8484:8d60:2fca&port=8843&secret=dd208e184d06275b7e07b56459d1efd409|этой ссылке]]. Не забывайте включить [[yggdrasil:Yggdrasil]].|
+
+
+===== GIT =====
+^  Адрес  ^  Администратор  ^ Платформа ^
+|http://[316:c51a:62a3:8b9::4]/|  PurpleI2P  |  Gitea  | 
+|http://git.ygg/|  [[user:neonxp|NeonXP]]  |  Forgejo  |
+
+
+
+===== Radicle =====
+
+[[ https://radicle.xyz | Radicle ]] - децентрализованная (P2P) альтернатива Git
+
+^  Адрес  ^  Администратор ^Комментарий ^
+|z6MkocYY4dgMjo2YeUEwQ4BP4AotL7MyovzJCPiEuzkjg127@202:f094:502b:1b03:9e0:2c3d:bc8b:428b:8776|  [[https://lorenz.leutgeb.xyz | Lorenz  ]]  |  -  |
+
+    * обратите внимание: важно указывать хост без квадратных скобок ([[https://radicle.zulipchat.com/#narrow/channel/369274-General/topic/Can't.20connect.20IPv6.20seers.20but.20via.20DNS.20only|источник]])
+===== Reticulum =====
+
+Используется для соединения с инфраструктурой [[https://reticulum.network|Reticulum]] / [[https://github.com/markqvist/lxmf|LXMF]] посредством Yggdrasil в [[https://github.com/liamcottle/reticulum-meshchat|MeshChat]] (Web UI) и [[https://github.com/markqvist/NomadNet|NomadNet]] (TUI)
+
+^  Адрес  ^  Порт  ^  Протокол  ^
+|200:73eb:2e4:14be:aac7:90b3:784b:71a3|  4242  |  TCP  |
+
+   * смотрите также: [[https://directory.rns.recipes/|список, редактируемый сообществом]]
+
+===== Iroh =====
+
+Список публичных Relays.
+
+^  Адрес  ^
+| [[http://[202:68d0:f0d5:b88d:1d1a:555e:2f6b:3148]:3340]] |
+
+Пример использования [[https://github.com/n0-computer/sendme|sendme]]:
+
+<code>
+sendme send -v --magic-ipv6-addr [ВАШ_YGG]:ПОРТ \
+    --relay http://[202:68d0:f0d5:b88d:1d1a:555e:2f6b:3148]:3340 /path/to/file
+</code>
+
+Пример настроек [[https://codeberg.org/YGGverse/server/src/branch/main/etc/systemd/system/iroh-relay-yggdrasil.service|systemd]], [[https://codeberg.org/YGGverse/server/src/branch/main/etc/iroh/yggdrasil/relay.toml|toml]].
+
+===== Nostr =====
+
+Список публичных Relays.
+
+^  Адрес  ^  Описание  ^
+| [[wss://nostr.twinkle.lol/]] | Relay имеет две записи в DNS - ipv4 (белый) и ipv6 - ygg и доступен из обеих сетей |
+| [[ws://[31b:6f20:c7f2:3ddf::3221]/]] | Relay имеет только ygg адрес |
+
+По https://nostr.twinkle.lol доступен простенький web.app клиент.
+
+Адрес админа этих релеев - **npub1w7n7mv8vgv2z8h4fcvzx0xpvrtnxjgk40fm4nlrz692ufxhwq3psp5x26t** (NIP-5: **ufm@ufm.lol**)
+
+Адрес оповещалки об изменениях в [[this>|этой wiki]] и на сайте [[http://21e:a51c:885b:7db0:166e:927:98cd:d186|sites.ygg]] (аналогичный тому, что транслируется в [[https://matrix.to/#/#howto.ygg:matrix.org|#howto.ygg:matrix.org]]) - [[https://nostr.twinkle.lol/users/npub1zk4998a0h6gqrq0xhs7kd02m0gl3uwe5k0fxgnsxrvn2dtxj82csulmmzh|npub1zk4998a0h6gqrq0xhs7kd02m0gl3uwe5k0fxgnsxrvn2dtxj82csulmmzh]] (NIP-05: **sites.ygg@yggwiki.cc**)
+
+Список серверов [[ https://github.com/hzrd149/blossom | Blossom ]]:
+
+^  Адрес  ^  Описание  ^
+| [[http://[302:68d0:f0d5:b88d::bdb]/]] | Сервер работает по [[ https://codeberg.org/YGGverse/server/src/branch/main/etc/route96/whitelist.txt | белому списку ]], доступ по запросу: [[ https://mastodon.social/@yggverse | 1 ]], [[ http://[202:68d0:f0d5:b88d:1d1a:555e:2f6b:3148]/d/284 | 2 ]], [[ irc://[202:68d0:f0d5:b88d:1d1a:555e:2f6b:3148]:6667 | 3 ]] или **npub14cc4tzh8qhzcfsp0gz7d80nzkdt0y5u5p980ywp8p6e28wjmp60sqe2nka**|
+
+Программное обеспечение:
+
+Доступен [[ https://github.com/yggverse/gossip | форк gossip]] с поддержкой IPv6, SOCKS5 и другими полезными дополнениями (локальные identicon, мульти-выгрузка Blossom и т.д.) 
+===== SkunkyArt (фронтенд к DeviantArt) =====
+^  Адрес  ^  Администратор  ^ Описание ^
+|http://[201:f137:d1ac:920e:cd42:bfd1:1e83:da1d]/skunkyart|[[user:softpigeones|lost+skunk]]|Официальный экземпляр SkunkyArt| 
+
+
+
+===== NTP =====
+
+^  Адрес  ^  Администратор  ^  Размещение  ^
+|[31e:ab54:6763:4517::4]|  [[user:Orbit173|Orbit173]]  | Лелистад, Нидерланды |
+
+===== DNS =====
+
+Таблица публичных серверов DNS собрана на странице: [[yggdrasil:dns:internal_dns]]
+
+===== Игры =====
+==== Minecraft ====
+
+^  Адрес  ^  Администратор  ^ Описание ^
+|[228:39cf:5792:fbd1:d5c7:a750:7ab9:4389]:25565|  @cXzAwin2B  |Внутрисетевой сервер minecraft 26.1.2 Почта: 30a0b348e695c61bb95658d8a732f2746d65bc191ad0e6e5f056b168ed126a3b@yggmail | 
+
+==== Half-Life ====
+
+^  Адрес  ^  Администратор  ^ Описание ^
+|[300:eaff:7fab:181b::e949]:7588|  @lostskunk  |Внутрисетевой сервер Half-Life 1 [[https://go.kde.org/matrix/#/#skunk.conf:sibnsk.net|Matrix]]| 
+|[202:68d0:f0d5:b88d:1d1a:555e:2f6b:3148]:27015|  YGGverse  | - | 
+
+  * [[http://[202:68d0:f0d5:b88d:1d1a:555e:2f6b:3148]:27080 | поиск игрового сервера онлайн (в сети yggdrasil)]]
+
+Мастер сервера: 
+
+  * [200:eaff:7fab:181b:dba8:1f83:1e5:d07b]:27010
+  * [202:68d0:f0d5:b88d:1d1a:555e:2f6b:3148]:27010
+
+Инструкции:
+
+  * [[yggdrasil:games:half_life_on_xash3d]]
+===== Криптовалюта =====
+
+Список пиров для подключения в сети Yggdrasil
+
+**Monero**
+
+    * %%[201:2d47:2607:ecaf:2909:2dc5:926d:a8df]:18089%%
+    * %%[200:28fa:d807:e104:5a13:e2c4:eaf:445f]:18081%%
+
+**Другое**
+
+    * [[ http://[201:72f6:9b56:e977:2d40:c7da:667b:f7a0]/|Онлайн-индекс стандартных портов, включая BitCoin, LiteCoin, DogeCoin]]
+    * [[ yggdrasil:yps | YPS - сканер открытых портов в сети Yggdrasil ]]
+===== Ссылки =====
+
+Список различных сервисов так же ведется разработчиками [[Yggdrasil:Yggdrasil]] на сайте проекта: https://yggdrasil-network.github.io/services.html\\
+Каталог прокси и актуальные примеры конфигурации к ним для Nginx и Apache: https://github.com/YGGverse/YGGbro
