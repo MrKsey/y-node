@@ -65,6 +65,8 @@ jobs:
           cache: true
           cache-dependency-path: go-bridge/go.sum
 
+      - uses: android-actions/setup-android@v3
+
       - name: Android NDK
         run: |
           yes | sdkmanager --licenses >/dev/null || true
