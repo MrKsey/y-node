@@ -1,16 +1,14 @@
 # Y-Node
 
-A [Yggdrasil](https://yggdrasil-network.github.io/) client for Android.
-The app brings up a VPN tunnel into Yggdrasil right on the phone — no root,
-no manual setup and no third-party servers. And when you want regular
-internet through a trusted node, Y-Node connects to an exit node with a
-single QR scan.
+A [Yggdrasil](https://yggdrasil-network.github.io/) client for Android. The app
+brings up a VPN tunnel and gives access to the internal resources of the
+Yggdrasil network.
 
-For that second part Y-Node pairs with
-[X-Node](https://github.com/MrKsey/x-node), a self-hosted exit node for
-Yggdrasil. X-Node installs on Ubuntu or Debian with one command, hands out
-QR-code invites, meters traffic and enforces volume and speed quotas. It is
-optional: without it Y-Node remains a full-featured Yggdrasil client.
+If you need a way out to the regular internet through Yggdrasil, you need a
+so-called exit node: a server that accepts traffic from Yggdrasil and sends it
+on to the open internet. Such a server is built for Y-Node —
+[X-Node](https://github.com/MrKsey/x-node): it is set up on Ubuntu with one
+command and connects clients by QR codes (see the X-Node project).
 
 *[Русская версия](README.ru.md)*
 

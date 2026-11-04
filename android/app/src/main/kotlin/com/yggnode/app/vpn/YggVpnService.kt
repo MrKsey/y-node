@@ -1055,6 +1055,7 @@ class YggVpnService : VpnService() {
         var self: Thread? = null
         self = Thread({
             var first = true
+            var registered = false
             while (isActive && !stopping && exitWatchThread === self) {
                 val current = prefs.settings()
                 if (!current.exitActive()) break
@@ -1067,6 +1068,10 @@ class YggVpnService : VpnService() {
                     }
                     first = false
                     if (!isActive || stopping) break
+                }
+                if (!registered) {
+                    registered = true
+                    refreshRegistration(current)
                 }
                 try {
                     node.checkExitProfiles(
@@ -1099,6 +1104,33 @@ class YggVpnService : VpnService() {
     private fun stopExitWatch() {
         exitWatchThread?.interrupt()
         exitWatchThread = null
+    }
+
+    /**
+     * Sends the device name and the app version to the active exit once per
+     * connection. An empty invite is accepted for an address that is already
+     * allowlisted, so the exit shows the current version after an app update
+     * instead of the one from the day the invite was redeemed. An older exit
+     * answers "invite_invalid"; that is harmless and only logged.
+     */
+    private fun refreshRegistration(current: Settings) {
+        val profile = current.exitProfiles.firstOrNull {
+            it.id == current.exitActiveId
+        } ?: current.exitProfiles.firstOrNull() ?: return
+        try {
+            node.registerExit(
+                profile.id,
+                "",
+                try {
+                    Build.MODEL ?: "Android"
+                } catch (_: Throwable) {
+                    "Android"
+                },
+                appVersion(),
+            )
+        } catch (t: Throwable) {
+            ConnectionLog.append("WARN", "registration refresh failed: ${t.message}")
+        }
     }
 
     /** Asks the exit health loop to poll right away instead of waiting a tick. */

@@ -115,6 +115,11 @@ class ExitStatusUi {
         }
         return ExitUiState.online;
       case 'denied':
+        // An exhausted traffic quota is reported by the SOCKS reply as "not
+        // allowed". The exit still accepts the device, it only refuses new
+        // connections until the cap resets, so the card must not flip to
+        // "Not allowed" while the quota row already explains the refusal.
+        if (status.active?.quotaExhausted ?? false) return ExitUiState.online;
         return ExitUiState.denied;
       case 'unreachable':
         return fallbackDirect ? ExitUiState.fallback : ExitUiState.unreachable;

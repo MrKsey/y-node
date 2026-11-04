@@ -746,6 +746,16 @@ func (m *exitManager) markFailure(id string, err error) {
 	health.Error = err.Error()
 	health.CheckedAt = time.Now().Unix()
 	if isSocksDenied(err) {
+		// An exhausted traffic quota is answered with the same SOCKS reply as
+		// a real denial. It is not a denial of this device: the exit still
+		// knows the client and only refuses new connections until the cap
+		// resets. Marking it denied made the card flip between "Online" (the
+		// status API still answers) and "Not allowed" (the data path is
+		// refused) on every poll.
+		if health.Quota != nil && health.Quota.Exhausted {
+			health.State = exitStateOnline
+			return
+		}
 		health.State = exitStateDenied
 		health.deniedUntil = time.Now().Add(exitDeniedBackoff)
 	}
