@@ -107,4 +107,49 @@ void main() {
 
     expect(find.text('API access is limited'), findsNothing);
   });
+
+  testWidgets('the quota row shows usage and names the real reason', (
+    tester,
+  ) async {
+    const exhausted = ExitStatus(
+      enabled: true,
+      state: 'online',
+      activeId: 'exit-1',
+      profiles: [
+        ExitProfileStatus(
+          id: 'exit-1',
+          name: 'Test exit',
+          address: '200::1',
+          refused: 5,
+          quotaRefused: 4,
+          maxConns: 128,
+          quota: ExitQuota(
+            dailyBytes: 5000000000,
+            downKbps: 20000,
+            upKbps: 5000,
+            dayUsed: 5000000000,
+            exhausted: true,
+            reason: 'daily quota exhausted',
+          ),
+        ),
+      ],
+      udp: ExitUdpStatus(enabled: true, state: 'idle'),
+      updatedAt: 1,
+    );
+    await pumpCard(
+      tester,
+      stateWith(const VpnSnapshot(status: 'connected', exit: exhausted)),
+    );
+
+    expect(find.text('Traffic quota'), findsOneWidget);
+    expect(find.text('Today 5 GB of 5 GB'), findsOneWidget);
+    expect(
+      find.text('Download limit 20 Mbit/s · Upload limit 5 Mbit/s'),
+      findsOneWidget,
+    );
+    expect(find.text('The daily traffic quota is exhausted'), findsOneWidget);
+    // The refusal counter includes quota refusals, but the card must not call
+    // them a connection-limit problem.
+    expect(find.textContaining('at its limit of'), findsNothing);
+  });
 }

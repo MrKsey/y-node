@@ -329,6 +329,18 @@ class L10n {
     'exitApiLimitedHint':
         'The exit wants an API token. The app fetches it automatically when '
         'this node is in the allowlist; otherwise ask the operator.',
+    'exitQuotaTitle': 'Traffic quota',
+    'exitQuotaMonth': 'This month %s of %s',
+    'exitQuotaDay': 'Today %s of %s',
+    'exitQuotaDown': 'Download limit %s',
+    'exitQuotaUp': 'Upload limit %s',
+    'exitQuotaExhaustedShort': 'Exhausted',
+    'exitQuotaExhausted': 'The traffic quota is exhausted',
+    'exitQuotaDailyExhausted': 'The daily traffic quota is exhausted',
+    'exitQuotaMonthlyExhausted': 'The monthly traffic quota is exhausted',
+    'exitQuotaExhaustedHint':
+        'New connections are refused until the quota resets. Open connections '
+        'keep working.',
     'exitProfilesTitle': 'Exit nodes',
     'exitProfilesHint':
         'Public traffic goes through the first working node. Drag a row to '

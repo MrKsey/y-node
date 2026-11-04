@@ -28,6 +28,7 @@ class ExitNodeCard extends StatelessWidget {
       fallbackDirect: settings.exitFallbackDirect,
     );
     final active = status.active;
+    final quota = active?.quota;
     final activeProfile = settings.exitActiveProfile;
     // Both self-check rows describe the live tunnel: the relay association and
     // the IPv6 path only exist while the data path is running. Without the
@@ -110,6 +111,8 @@ class ExitNodeCard extends StatelessWidget {
               style: theme.textTheme.bodySmall,
             ),
           ),
+        if (live && settings.exitActive && quota != null && !quota.isUnlimited)
+          _QuotaRow(quota: quota, l10n: l10n),
         if (live && settings.exitActive && status.udp.enabled)
           _UdpRow(
             udp: status.udp,
@@ -207,6 +210,101 @@ class ExitNodeCard extends StatelessWidget {
       context: context,
       builder: (_) => _Ipv6ProbeDialog(result: result, l10n: l10n),
     );
+  }
+}
+
+/// The traffic quota and speed limits the exit applies to this client.
+class _QuotaRow extends StatelessWidget {
+  const _QuotaRow({required this.quota, required this.l10n});
+
+  final ExitQuota quota;
+  final L10n l10n;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final exhausted = quota.exhausted;
+    final color = exhausted ? Colors.orange : theme.colorScheme.primary;
+    final style = theme.textTheme.bodySmall?.copyWith(color: color);
+    final cap = quota.tightestCap;
+    final percent = cap == null
+        ? null
+        : ((cap.used / cap.limit) * 100).clamp(0, 100).round();
+    final lines = <Widget>[
+      if (quota.monthlyBytes > 0)
+        Text(
+          l10n.tf('exitQuotaMonth', [
+            formatQuotaBytes(quota.monthUsed),
+            formatQuotaBytes(quota.monthlyBytes),
+          ]),
+          style: style,
+        ),
+      if (quota.dailyBytes > 0)
+        Text(
+          l10n.tf('exitQuotaDay', [
+            formatQuotaBytes(quota.dayUsed),
+            formatQuotaBytes(quota.dailyBytes),
+          ]),
+          style: style,
+        ),
+      if (quota.hasSpeedLimit)
+        Text(
+          [
+            if (quota.downKbps > 0)
+              l10n.tf('exitQuotaDown', [formatBitRate(quota.downKbps)]),
+            if (quota.upKbps > 0)
+              l10n.tf('exitQuotaUp', [formatBitRate(quota.upKbps)]),
+          ].join(' · '),
+          style: style,
+        ),
+      if (exhausted) ...[
+        Text(
+          _reason(),
+          style: theme.textTheme.bodySmall?.copyWith(color: Colors.orange),
+        ),
+        Text(
+          l10n.t('exitQuotaExhaustedHint'),
+          style: theme.textTheme.bodySmall,
+        ),
+      ],
+    ];
+    return ListTile(
+      dense: true,
+      contentPadding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+      leading: Icon(Icons.data_usage_rounded, size: 20, color: color),
+      title: Row(
+        children: [
+          Text(l10n.t('exitQuotaTitle'), style: theme.textTheme.bodyMedium),
+          if (exhausted) ...[
+            const SizedBox(width: 8),
+            StatusPill(
+              label: l10n.t('exitQuotaExhaustedShort'),
+              color: Colors.orange,
+            ),
+          ],
+        ],
+      ),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: lines,
+      ),
+      trailing: percent == null ? null : Text('$percent%', style: style),
+      isThreeLine: lines.length > 1,
+    );
+  }
+
+  String _reason() {
+    switch (quota.reason) {
+      case 'daily quota exhausted':
+        return l10n.t('exitQuotaDailyExhausted');
+      case 'monthly quota exhausted':
+        return l10n.t('exitQuotaMonthlyExhausted');
+      default:
+        return quota.reason.isEmpty
+            ? l10n.t('exitQuotaExhausted')
+            : quota.reason;
+    }
   }
 }
 
@@ -314,7 +412,7 @@ class _UdpRow extends StatelessWidget {
                 : const Icon(Icons.science_outlined, size: 20),
           ),
         ),
-        if (load != null && load.hitLimit)
+        if (load != null && load.hitLimit && !load.quotaExhausted)
           ListTile(
             dense: true,
             contentPadding: const EdgeInsets.fromLTRB(16, 0, 16, 4),

@@ -94,9 +94,13 @@ type profileHealth struct {
 	// tells a limit problem from a dead exit.
 	Connections        int
 	Refused            int
+	QuotaRefused       int
 	MaxConns           int
 	UDPAssociations    int
 	MaxUDPAssociations int
+	// Quota is the traffic quota the exit applies to this client. Nil when the
+	// exit has no quota for it or is too old to report one.
+	Quota *exitQuota
 	// udpUnsupportedUntil keeps an exit that answered "command not supported"
 	// out of the UDP failover list for a while, so every DNS query does not pay
 	// for another refused handshake.
@@ -698,7 +702,7 @@ func (m *exitManager) isDenied(id string) bool {
 }
 
 // markLoad stores the counters the status API reported for this client.
-func (m *exitManager) markLoad(id string, connections, refused, maxConns, udpAssociations, maxUDPAssociations int) {
+func (m *exitManager) markLoad(id string, connections, refused, quotaRefused, maxConns, udpAssociations, maxUDPAssociations int, quota *exitQuota) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	health, ok := m.health[id]
@@ -708,9 +712,11 @@ func (m *exitManager) markLoad(id string, connections, refused, maxConns, udpAss
 	}
 	health.Connections = connections
 	health.Refused = refused
+	health.QuotaRefused = quotaRefused
 	health.MaxConns = maxConns
 	health.UDPAssociations = udpAssociations
 	health.MaxUDPAssociations = maxUDPAssociations
+	health.Quota = quota
 }
 
 func (m *exitManager) markSuccess(id string, latency time.Duration) {
@@ -1042,9 +1048,27 @@ type exitProfileStatus struct {
 	// Load of this client on the exit, from the last status poll.
 	Connections        int `json:"connections"`
 	Refused            int `json:"refused"`
+	QuotaRefused       int `json:"quotaRefused,omitempty"`
 	MaxConns           int `json:"maxConns"`
 	UDPAssociations    int `json:"udpAssociations"`
 	MaxUDPAssociations int `json:"maxUdpAssociations"`
+
+	// Quota is the effective traffic quota of this client. Nil when the exit
+	// does not limit it or is too old to report quotas.
+	Quota *exitQuota `json:"quota,omitempty"`
+}
+
+// exitQuota mirrors the quota block of the exit status API. Limits are 0 when
+// unset; used counters are bytes since the start of the day and the month.
+type exitQuota struct {
+	MonthlyBytes int64  `json:"monthlyBytes"`
+	DailyBytes   int64  `json:"dailyBytes"`
+	DownKbps     int    `json:"downKbps"`
+	UpKbps       int    `json:"upKbps"`
+	DayUsed      uint64 `json:"dayUsed"`
+	MonthUsed    uint64 `json:"monthUsed"`
+	Exhausted    bool   `json:"exhausted"`
+	Reason       string `json:"reason,omitempty"`
 }
 
 func (m *exitManager) status() exitStatus {
@@ -1124,9 +1148,11 @@ func (m *exitManager) statusBase() exitStatus {
 			item.Authenticated = health.Authenticated
 			item.Connections = health.Connections
 			item.Refused = health.Refused
+			item.QuotaRefused = health.QuotaRefused
 			item.MaxConns = health.MaxConns
 			item.UDPAssociations = health.UDPAssociations
 			item.MaxUDPAssociations = health.MaxUDPAssociations
+			item.Quota = health.Quota
 		}
 		// Publish a token learned at run time, unless the profile already
 		// carries the same one: the app saves the difference.
@@ -1179,11 +1205,13 @@ type exitAPIStatus struct {
 	Auth          string `json:"auth"`
 	ExitName      string `json:"exitName"`
 
-	Connections        int `json:"connections"`
-	Refused            int `json:"refused"`
-	MaxConns           int `json:"maxConnsPerClient"`
-	UDPAssociations    int `json:"udpAssociations"`
-	MaxUDPAssociations int `json:"maxUdpAssociations"`
+	Connections        int        `json:"connections"`
+	Refused            int        `json:"refused"`
+	QuotaRefused       int        `json:"quotaRefused"`
+	MaxConns           int        `json:"maxConnsPerClient"`
+	UDPAssociations    int        `json:"udpAssociations"`
+	MaxUDPAssociations int        `json:"maxUdpAssociations"`
+	Quota              *exitQuota `json:"quota,omitempty"`
 }
 
 // apiCall performs one HTTP request against the API of an exit through
@@ -1361,8 +1389,8 @@ func (m *exitManager) checkProfile(ctx context.Context, profile ExitProfile) err
 			}
 		}
 		m.markAuth(profile.ID, authenticated, payload.Auth == "required" && !authenticated)
-		m.markLoad(profile.ID, payload.Connections, payload.Refused, payload.MaxConns,
-			payload.UDPAssociations, payload.MaxUDPAssociations)
+		m.markLoad(profile.ID, payload.Connections, payload.Refused, payload.QuotaRefused,
+			payload.MaxConns, payload.UDPAssociations, payload.MaxUDPAssociations, payload.Quota)
 		// Without a token the exit publishes nothing about allowlist, so a
 		// missing field is "unknown", not "denied".
 		if payload.Allowlisted != nil && !*payload.Allowlisted && !payload.Open {

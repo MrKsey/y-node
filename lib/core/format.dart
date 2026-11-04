@@ -14,6 +14,40 @@ String formatBytes(int bytes) {
   return '${value.toStringAsFixed(digits)} ${units[unit]}';
 }
 
+/// Quota sizes in decimal megabytes, the unit the exit is configured with:
+/// `0 MB`, `850 MB`, `14.3 GB`. Bytes are never shown, so a quota reads the
+/// same here as in `x-node quota show`.
+String formatQuotaBytes(int bytes) {
+  if (bytes <= 0) return '0 MB';
+  const units = ['MB', 'GB', 'TB'];
+  var value = bytes / 1000000;
+  var unit = 0;
+  while (value >= 1000 && unit < units.length - 1) {
+    value /= 1000;
+    unit++;
+  }
+  final digits = value >= 100 ? 0 : (value >= 10 ? 1 : 2);
+  return '${_trimFixed(value, digits)} ${units[unit]}';
+}
+
+/// A speed limit in megabits per second, the unit a speed test reports:
+/// `5 Mbit/s`, `20 Mbit/s`.
+String formatBitRate(int kbps) {
+  if (kbps <= 0) return '0 Mbit/s';
+  final mbps = kbps / 1000;
+  final digits = mbps >= 100 ? 0 : (mbps >= 10 ? 1 : 2);
+  return '${_trimFixed(mbps, digits)} Mbit/s';
+}
+
+String _trimFixed(double value, int digits) {
+  var text = value.toStringAsFixed(digits);
+  if (text.contains('.')) {
+    text = text.replaceFirst(RegExp(r'0+$'), '');
+    text = text.replaceFirst(RegExp(r'\.$'), '');
+  }
+  return text;
+}
+
 /// Latency with a sensible number of digits: `14.4 ms`.
 String formatLatency(double milliseconds) {
   if (milliseconds <= 0) return '—';

@@ -5,6 +5,12 @@
 без ручной настройки и без сторонних серверов. А если нужен обычный интернет
 через доверенный узел, Y-Node подключается к exit-узлу по QR-коду.
 
+Для этого Y-Node работает в паре с [X-Node](https://github.com/MrKsey/x-node) —
+exit-узлом для Yggdrasil, который вы ставите на свой сервер. X-Node
+устанавливается на Ubuntu или Debian одной командой, выдаёт приглашения в виде
+QR-кодов, считает трафик и ограничивает клиентов по объёму и скорости. Он
+**необязателен**: без него Y-Node остаётся полноценным клиентом сети Yggdrasil.
+
 *[English version](README.md)*
 
 ## Установка
@@ -42,30 +48,29 @@
   имена — через системный DNS или выбранные серверы.
 - **Адресная книга.** Лучшие сайты сети уже внутри: добавьте свои, найдите
   нужное и откройте в браузере.
-- **Работает в фоне.** Туннель переживает блокировку экрана, смену сети и
-  перезапуск, а плитка в быстрых настройках включает его одним касанием.
-- **Понятная диагностика.** Журнал с логами ядра и проверками DNS можно
-  посмотреть, скопировать и очистить прямо в приложении.
-
-## Серверная часть
-
-Y-Node умеет работать и без сервера: публичные пиры дают доступ к сети
-Yggdrasil. Но чтобы выпускать обычный интернет-трафик, нужен **exit-узел** —
-сервер, который принимает трафик из Yggdrasil и отправляет его дальше.
-
-Такой узел ставится из отдельного проекта
-[X-Node](https://github.com/MrKsey/x-node): он поднимается на Ubuntu одной
-командой, выдаёт приглашения в виде QR-кодов и умеет считать трафик и
-ограничивать клиентов по квотам. X-Node **необязателен** — без него Y-Node
-остаётся полноценным клиентом сети Yggdrasil.
 
 ## Сборка из исходников
 
-```powershell
+Сборка выполняется в Linux. Нужны Go, JDK 17, Flutter и Android SDK с NDK.
+Укажите пути:
+
+```bash
+export ANDROID_HOME="$HOME/Android/Sdk"
+export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/<версия>"
+export JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
+export PATH="$JAVA_HOME/bin:$(go env GOPATH)/bin:$PATH"
+
 # 1. Go-мост (нужны Go, Android NDK и JDK 17)
-powershell -ExecutionPolicy Bypass -File tool/build_aar.ps1
+go install golang.org/x/mobile/cmd/gomobile@latest
+mkdir -p android/app/libs
+cd go-bridge
+gomobile init
+gomobile bind -target=android/arm,android/arm64 -androidapi=26 \
+  -ldflags=-checklinkname=0 -o ../android/app/libs/yggnode.aar ./yggnode
+cd ..
 
 # 2. APK под обе архитектуры
+flutter pub get
 flutter build apk --release --target-platform android-arm,android-arm64 --split-per-abi
 ```
 

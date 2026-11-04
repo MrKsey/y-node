@@ -563,8 +563,13 @@ class AppState extends ChangeNotifier {
     for (final profile in value.exit.profiles)
       '${profile.id}|${profile.name}|${profile.address}|${profile.state}|'
           '${profile.latencyMs}|${profile.error}|${profile.checkedAt}|'
-          '${profile.connections}|${profile.refused}|${profile.maxConns}|'
-          '${profile.udpAssociations}|${profile.maxUdpAssociations}',
+          '${profile.connections}|${profile.refused}|${profile.quotaRefused}|'
+          '${profile.maxConns}|${profile.udpAssociations}|'
+          '${profile.maxUdpAssociations}|'
+          '${profile.quota?.monthlyBytes}|${profile.quota?.dailyBytes}|'
+          '${profile.quota?.downKbps}|${profile.quota?.upKbps}|'
+          '${profile.quota?.dayUsed}|${profile.quota?.monthUsed}|'
+          '${profile.quota?.exhausted}|${profile.quota?.reason}',
   ].join('|');
 
   void _listenToStatus() {

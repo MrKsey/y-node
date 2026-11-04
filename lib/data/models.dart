@@ -345,6 +345,65 @@ class ExitProfile {
       jsonEncode(profiles.map((profile) => profile.toJson()).toList());
 }
 
+/// The traffic quota an exit applies to this client. A zero limit means that
+/// direction or period is unlimited.
+class ExitQuota {
+  const ExitQuota({
+    this.monthlyBytes = 0,
+    this.dailyBytes = 0,
+    this.downKbps = 0,
+    this.upKbps = 0,
+    this.dayUsed = 0,
+    this.monthUsed = 0,
+    this.exhausted = false,
+    this.reason = '',
+  });
+
+  final int monthlyBytes;
+  final int dailyBytes;
+  final int downKbps;
+  final int upKbps;
+  final int dayUsed;
+  final int monthUsed;
+
+  /// True when a traffic cap is used up: the exit refuses new connections
+  /// until the day or the month rolls over.
+  final bool exhausted;
+
+  /// Why the quota is exhausted, as reported by the exit.
+  final String reason;
+
+  bool get hasTrafficCap => monthlyBytes > 0 || dailyBytes > 0;
+  bool get hasSpeedLimit => downKbps > 0 || upKbps > 0;
+  bool get isUnlimited => !hasTrafficCap && !hasSpeedLimit;
+
+  /// The cap closest to being used up, and how much of it is gone. Null when
+  /// the exit sets no traffic cap.
+  ({int used, int limit})? get tightestCap {
+    ({int used, int limit})? best;
+    if (dailyBytes > 0) best = (used: dayUsed, limit: dailyBytes);
+    if (monthlyBytes > 0) {
+      final monthly = (used: monthUsed, limit: monthlyBytes);
+      if (best == null ||
+          monthly.used / monthly.limit > best.used / best.limit) {
+        best = monthly;
+      }
+    }
+    return best;
+  }
+
+  factory ExitQuota.fromJson(Map<String, dynamic> json) => ExitQuota(
+    monthlyBytes: (json['monthlyBytes'] as num?)?.toInt() ?? 0,
+    dailyBytes: (json['dailyBytes'] as num?)?.toInt() ?? 0,
+    downKbps: (json['downKbps'] as num?)?.toInt() ?? 0,
+    upKbps: (json['upKbps'] as num?)?.toInt() ?? 0,
+    dayUsed: (json['dayUsed'] as num?)?.toInt() ?? 0,
+    monthUsed: (json['monthUsed'] as num?)?.toInt() ?? 0,
+    exhausted: (json['exhausted'] as bool?) ?? false,
+    reason: ((json['reason'] as String?) ?? '').trim(),
+  );
+}
+
 /// The health of one exit profile, as measured by the Go bridge.
 class ExitProfileStatus {
   const ExitProfileStatus({
@@ -357,9 +416,11 @@ class ExitProfileStatus {
     this.checkedAt = 0,
     this.connections = 0,
     this.refused = 0,
+    this.quotaRefused = 0,
     this.maxConns = 0,
     this.udpAssociations = 0,
     this.maxUdpAssociations = 0,
+    this.quota,
     this.authenticated = true,
     this.token = '',
   });
@@ -381,10 +442,18 @@ class ExitProfileStatus {
   /// what "we hit maxConnsPerClient" looks like from the phone.
   final int refused;
 
+  /// The part of [refused] caused by an exhausted traffic quota, not by the
+  /// connection limit. The app uses it to name the right reason.
+  final int quotaRefused;
+
   /// The limits the exit reports, 0 when the server is too old to send them.
   final int maxConns;
   final int udpAssociations;
   final int maxUdpAssociations;
+
+  /// The traffic quota of this client, null when the exit does not set one or
+  /// is too old to report it.
+  final ExitQuota? quota;
 
   /// False when the exit answered with the minimal status: it requires an API
   /// token this profile does not have (yet). A server from before 1.3 has no
@@ -395,8 +464,19 @@ class ExitProfileStatus {
   /// profile; empty when the profile already has one.
   final String token;
 
-  /// True when the exit refused at least one connection since it started.
-  bool get hitLimit => refused > 0;
+  /// Refusals caused by the connection limit, excluding quota refusals.
+  int get limitRefused {
+    final value = refused - quotaRefused;
+    return value > 0 ? value : 0;
+  }
+
+  /// True when the exit refused at least one connection because of its
+  /// connection limit. Quota refusals are reported separately.
+  bool get hitLimit => limitRefused > 0;
+
+  /// True when a traffic cap is used up, so new connections are refused
+  /// because of the quota rather than the connection limit.
+  bool get quotaExhausted => quota?.exhausted ?? false;
 
   /// True when the exit wants a token and the profile has none: the counters
   /// are unavailable rather than zero.
@@ -413,9 +493,13 @@ class ExitProfileStatus {
         checkedAt: (json['checkedAt'] as num?)?.toInt() ?? 0,
         connections: (json['connections'] as num?)?.toInt() ?? 0,
         refused: (json['refused'] as num?)?.toInt() ?? 0,
+        quotaRefused: (json['quotaRefused'] as num?)?.toInt() ?? 0,
         maxConns: (json['maxConns'] as num?)?.toInt() ?? 0,
         udpAssociations: (json['udpAssociations'] as num?)?.toInt() ?? 0,
         maxUdpAssociations: (json['maxUdpAssociations'] as num?)?.toInt() ?? 0,
+        quota: json['quota'] is Map<String, dynamic>
+            ? ExitQuota.fromJson(json['quota'] as Map<String, dynamic>)
+            : null,
         authenticated: (json['authenticated'] as bool?) ?? true,
         token: ((json['token'] as String?) ?? '').trim(),
       );
@@ -430,9 +514,11 @@ class ExitProfileStatus {
     checkedAt: checkedAt,
     connections: connections,
     refused: refused,
+    quotaRefused: quotaRefused,
     maxConns: maxConns,
     udpAssociations: udpAssociations,
     maxUdpAssociations: maxUdpAssociations,
+    quota: quota,
     authenticated: authenticated,
     token: token,
   );

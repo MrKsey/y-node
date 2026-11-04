@@ -235,6 +235,44 @@ void main() {
     expect(active.refused, 0);
     expect(active.maxConns, 0);
     expect(active.hitLimit, isFalse);
+    expect(active.quota, isNull);
+  });
+
+  test('the exit status carries the quota and separates its refusals', () {
+    final status = ExitStatus.tryParse(
+      '{"enabled":true,"state":"online","activeId":"202::1:1080",'
+      '"profiles":[{"id":"202::1:1080","name":"a","state":"online",'
+      '"connections":2,"refused":5,"quotaRefused":4,"maxConns":128,'
+      '"quota":{"monthlyBytes":100000000000,"dailyBytes":5000000000,'
+      '"downKbps":20000,"upKbps":5000,"dayUsed":5000000000,'
+      '"monthUsed":12000000000,"exhausted":true,'
+      '"reason":"daily quota exhausted"}}]}',
+    );
+    final active = status!.active!;
+    expect(active.quota, isNotNull);
+    expect(active.quota!.monthlyBytes, 100000000000);
+    expect(active.quota!.dailyBytes, 5000000000);
+    expect(active.quota!.downKbps, 20000);
+    expect(active.quota!.dayUsed, 5000000000);
+    expect(active.quota!.exhausted, isTrue);
+    expect(active.quotaRefused, 4);
+    expect(active.limitRefused, 1);
+    expect(active.hitLimit, isTrue);
+    expect(active.quotaExhausted, isTrue);
+  });
+
+  test('quota refusals alone are not a connection limit', () {
+    final status = ExitStatus.tryParse(
+      '{"enabled":true,"activeId":"202::1:1080",'
+      '"profiles":[{"id":"202::1:1080","state":"online",'
+      '"refused":3,"quotaRefused":3,'
+      '"quota":{"monthlyBytes":1000000000,"monthUsed":1000000000,'
+      '"exhausted":true,"reason":"monthly quota exhausted"}}]}',
+    );
+    final active = status!.active!;
+    expect(active.hitLimit, isFalse);
+    expect(active.limitRefused, 0);
+    expect(active.quotaExhausted, isTrue);
   });
 
   test('the UDP check result is read from the bridge JSON', () {
