@@ -96,11 +96,11 @@ jobs:
             -o ../android/app/libs/yggnode.aar \
             ./yggnode
 
-      - name: build the APK
+      - name: build the APKs
         run: |
           set -euo pipefail
           flutter pub get
-          flutter build apk --release --target-platform android-arm64 --split-per-abi
+          flutter build apk --release --target-platform android-arm,android-arm64 --split-per-abi
 
       - name: checksums
         run: |
@@ -108,8 +108,8 @@ jobs:
           mkdir -p dist
           version="$(awk '/^version:/ {print $2}' pubspec.yaml)"
           version="${version%%+*}"
+          cp "build/app/outputs/apk/release/Y-Node-${version}-armeabi-v7a.apk" dist/
           cp "build/app/outputs/apk/release/Y-Node-${version}-arm64-v8a.apk" dist/
-          cp android/app/libs/yggnode.aar dist/
           cd dist
           sha256sum ./* > SHA256SUMS.txt
           cat SHA256SUMS.txt

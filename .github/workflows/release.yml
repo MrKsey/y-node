@@ -20,7 +20,7 @@ env:
 
 jobs:
   release:
-    name: signed APK and AAR
+    name: signed APKs
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -106,28 +106,30 @@ jobs:
           EOF
           chmod 0600 android/key.properties android/release.jks
 
-      - name: build the signed APK
+      - name: build the signed APKs
         run: |
           set -euo pipefail
           flutter pub get
-          flutter build apk --release --target-platform android-arm64 --split-per-abi
+          flutter build apk --release --target-platform android-arm,android-arm64 --split-per-abi
 
       - name: verify the signature
         run: |
           set -euo pipefail
           version="$(awk '/^version:/ {print $2}' pubspec.yaml)"
           version="${version%%+*}"
-          apk="build/app/outputs/apk/release/Y-Node-${version}-arm64-v8a.apk"
-          test -f "$apk"
           apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)"
-          "$apksigner" verify --print-certs "$apk" | tee signature.txt
-          # "V2 Signer: certificate SHA-256 digest: <hex>": the digest is the
-          # third colon-separated field, not the second.
-          actual="$(awk -F': ' '/certificate SHA-256 digest/ {print tolower($3); exit}' signature.txt)"
-          if [ "$actual" != "$EXPECTED_CERT_SHA256" ]; then
-            echo "the APK was signed with the wrong key: $actual" >&2
-            exit 1
-          fi
+          for abi in armeabi-v7a arm64-v8a; do
+            apk="build/app/outputs/apk/release/Y-Node-${version}-${abi}.apk"
+            test -f "$apk"
+            "$apksigner" verify --print-certs "$apk" | tee "signature-${abi}.txt"
+            # "V2 Signer: certificate SHA-256 digest: <hex>": the digest is the
+            # third colon-separated field, not the second.
+            actual="$(awk -F': ' '/certificate SHA-256 digest/ {print tolower($3); exit}' "signature-${abi}.txt")"
+            if [ "$actual" != "$EXPECTED_CERT_SHA256" ]; then
+              echo "$apk was signed with the wrong key: $actual" >&2
+              exit 1
+            fi
+          done
 
       - name: checksums
         run: |
@@ -135,8 +137,8 @@ jobs:
           version="$(awk '/^version:/ {print $2}' pubspec.yaml)"
           version="${version%%+*}"
           mkdir -p dist
+          cp "build/app/outputs/apk/release/Y-Node-${version}-armeabi-v7a.apk" dist/
           cp "build/app/outputs/apk/release/Y-Node-${version}-arm64-v8a.apk" dist/
-          cp android/app/libs/yggnode.aar dist/
           cd dist
           sha256sum ./* > SHA256SUMS.txt
           cat SHA256SUMS.txt
