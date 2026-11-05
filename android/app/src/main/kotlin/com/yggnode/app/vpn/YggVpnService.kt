@@ -24,6 +24,7 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.util.Locale
 import java.util.concurrent.Executors
+import org.json.JSONObject
 import yggnode.Node
 import yggnode.Yggnode
 
@@ -1180,19 +1181,51 @@ class YggVpnService : VpnService() {
         return if (detail.isNotEmpty()) {
             detail
         } else if (status == VpnState.STATUS_CONNECTED) {
-            val speed = if (snapshot.status == VpnState.STATUS_CONNECTED) {
-                String.format(
-                    Locale.US,
-                    "↓ %s  ↑ %s",
-                    formatBytes(snapshot.rxBytes),
-                    formatBytes(snapshot.txBytes),
-                )
+            // A quota refusal is the reason a site stops opening while the
+            // tunnel itself stays up, so the panel says it in one short line
+            // instead of showing only peer counts.
+            if (quotaExhausted()) {
+                "Traffic quota exhausted"
             } else {
-                ""
+                val speed = if (snapshot.status == VpnState.STATUS_CONNECTED) {
+                    String.format(
+                        Locale.US,
+                        "↓ %s  ↑ %s",
+                        formatBytes(snapshot.rxBytes),
+                        formatBytes(snapshot.txBytes),
+                    )
+                } else {
+                    ""
+                }
+                "${snapshot.peersUp}/${snapshot.peersTotal} peers · $speed"
             }
-            "${snapshot.peersUp}/${snapshot.peersTotal} peers · $speed"
         } else {
             snapshot.nodeAddress
+        }
+    }
+
+    /**
+     * Reads the quota of the active exit profile from the last status poll. The
+     * bridge publishes the whole exit status as JSON in [VpnState], so the
+     * service needs no extra call to the exit.
+     */
+    private fun quotaExhausted(): Boolean {
+        val raw = VpnState.current.exitStatus
+        if (raw.isEmpty()) return false
+        return try {
+            val status = JSONObject(raw)
+            val profiles = status.optJSONArray("profiles") ?: return false
+            val activeId = status.optString("activeId")
+            for (index in 0 until profiles.length()) {
+                val profile = profiles.optJSONObject(index) ?: continue
+                // An unset active id means the bridge uses the first profile.
+                if (activeId.isNotEmpty() && profile.optString("id") != activeId) continue
+                val quota = profile.optJSONObject("quota") ?: return false
+                return quota.optBoolean("exhausted")
+            }
+            false
+        } catch (_: Throwable) {
+            false
         }
     }
 
