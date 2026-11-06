@@ -152,4 +152,32 @@ void main() {
     // them a connection-limit problem.
     expect(find.textContaining('at its limit of'), findsNothing);
   });
+
+  testWidgets('a suspended client is named and warns at a glance', (
+    tester,
+  ) async {
+    const suspended = ExitStatus(
+      enabled: true,
+      state: 'online',
+      activeId: 'exit-1',
+      profiles: [
+        ExitProfileStatus(
+          id: 'exit-1',
+          name: 'Test exit',
+          address: '200::1',
+          suspended: true,
+        ),
+      ],
+      udp: ExitUdpStatus(enabled: true, state: 'idle'),
+      updatedAt: 1,
+    );
+    await pumpCard(
+      tester,
+      stateWith(const VpnSnapshot(status: 'connected', exit: suspended)),
+    );
+
+    expect(find.text('The operator suspended this client'), findsOneWidget);
+    expect(find.text('Suspended'), findsOneWidget);
+    expect(find.byIcon(Icons.warning_amber_rounded), findsOneWidget);
+  });
 }

@@ -46,6 +46,25 @@ func TestParseExitConfigRejectsBadProfile(t *testing.T) {
 	}
 }
 
+func TestExitStatusReportsSuspension(t *testing.T) {
+	manager := &exitManager{
+		cfg: exitConfig{
+			Enabled:  true,
+			Profiles: []ExitProfile{{ID: "a", Name: "a"}},
+		},
+		health: map[string]*profileHealth{
+			"a": {State: exitStateOnline, Suspended: true},
+		},
+	}
+	status := manager.status()
+	if len(status.Profiles) != 1 {
+		t.Fatalf("profiles = %d", len(status.Profiles))
+	}
+	if !status.Profiles[0].Suspended {
+		t.Fatal("the suspension of the client was not published")
+	}
+}
+
 func TestExitOrderedPutsActiveFirst(t *testing.T) {
 	manager := &exitManager{
 		cfg: exitConfig{

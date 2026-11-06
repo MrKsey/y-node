@@ -1181,10 +1181,12 @@ class YggVpnService : VpnService() {
         return if (detail.isNotEmpty()) {
             detail
         } else if (status == VpnState.STATUS_CONNECTED) {
-            // A quota refusal is the reason a site stops opening while the
-            // tunnel itself stays up, so the panel says it in one short line
-            // instead of showing only peer counts.
-            if (quotaExhausted()) {
+            // A quota refusal or an operator suspension is the reason a site
+            // stops opening while the tunnel itself stays up, so the panel says
+            // it in one short line instead of showing only peer counts.
+            if (clientSuspended()) {
+                "Suspended by the operator"
+            } else if (quotaExhausted()) {
                 "Traffic quota exhausted"
             } else {
                 val speed = if (snapshot.status == VpnState.STATUS_CONNECTED) {
@@ -1222,6 +1224,29 @@ class YggVpnService : VpnService() {
                 if (activeId.isNotEmpty() && profile.optString("id") != activeId) continue
                 val quota = profile.optJSONObject("quota") ?: return false
                 return quota.optBoolean("exhausted")
+            }
+            false
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * Reads the operator block of the active exit profile from the last status
+     * poll. A suspended client keeps its tunnel up: only the exit refuses new
+     * connections, so the notification must explain the state.
+     */
+    private fun clientSuspended(): Boolean {
+        val raw = VpnState.current.exitStatus
+        if (raw.isEmpty()) return false
+        return try {
+            val status = JSONObject(raw)
+            val profiles = status.optJSONArray("profiles") ?: return false
+            val activeId = status.optString("activeId")
+            for (index in 0 until profiles.length()) {
+                val profile = profiles.optJSONObject(index) ?: continue
+                if (activeId.isNotEmpty() && profile.optString("id") != activeId) continue
+                return profile.optBoolean("suspended")
             }
             false
         } catch (_: Throwable) {

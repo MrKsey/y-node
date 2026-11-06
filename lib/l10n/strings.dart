@@ -341,6 +341,11 @@ class L10n {
     'exitQuotaExhaustedHint':
         'New connections are refused until the quota resets. Open connections '
         'keep working.',
+    'exitSuspendedShort': 'Suspended',
+    'exitSuspended': 'The operator suspended this client',
+    'exitSuspendedHint':
+        'The exit node refuses new connections until the operator resumes this '
+        'device. Its quota, counters and token are kept.',
     'exitProfilesTitle': 'Exit nodes',
     'exitProfilesHint':
         'Public traffic goes through the first working node. Drag a row to '

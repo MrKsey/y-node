@@ -275,6 +275,21 @@ void main() {
     expect(active.quotaExhausted, isTrue);
   });
 
+  test('the exit status reports an operator suspension', () {
+    final status = ExitStatus.tryParse(
+      '{"enabled":true,"state":"online","activeId":"202::1:1080",'
+      '"profiles":[{"id":"202::1:1080","name":"a","state":"online",'
+      '"suspended":true,"allowlisted":true}]}',
+    );
+    expect(status, isNotNull);
+    expect(status!.active?.suspended, isTrue);
+    // An old exit does not send the field at all.
+    final old = ExitStatus.tryParse(
+      '{"enabled":true,"activeId":"a","profiles":[{"id":"a"}]}',
+    );
+    expect(old!.active?.suspended, isFalse);
+  });
+
   test('the UDP check result is read from the bridge JSON', () {
     final result = UdpProbeResult.tryParse(
       '{"ok":true,"state":"ok","profile":"Fin-exit",'

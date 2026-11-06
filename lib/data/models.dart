@@ -421,6 +421,7 @@ class ExitProfileStatus {
     this.udpAssociations = 0,
     this.maxUdpAssociations = 0,
     this.quota,
+    this.suspended = false,
     this.authenticated = true,
     this.token = '',
   });
@@ -454,6 +455,11 @@ class ExitProfileStatus {
   /// The traffic quota of this client, null when the exit does not set one or
   /// is too old to report it.
   final ExitQuota? quota;
+
+  /// True when the operator blocked this client in the exit web interface.
+  /// The exit still answers the status API, but refuses new connections until
+  /// the block is lifted.
+  final bool suspended;
 
   /// False when the exit answered with the minimal status: it requires an API
   /// token this profile does not have (yet). A server from before 1.3 has no
@@ -500,6 +506,7 @@ class ExitProfileStatus {
         quota: json['quota'] is Map<String, dynamic>
             ? ExitQuota.fromJson(json['quota'] as Map<String, dynamic>)
             : null,
+        suspended: (json['suspended'] as bool?) ?? false,
         authenticated: (json['authenticated'] as bool?) ?? true,
         token: ((json['token'] as String?) ?? '').trim(),
       );
@@ -519,6 +526,7 @@ class ExitProfileStatus {
     udpAssociations: udpAssociations,
     maxUdpAssociations: maxUdpAssociations,
     quota: quota,
+    suspended: suspended,
     authenticated: authenticated,
     token: token,
   );

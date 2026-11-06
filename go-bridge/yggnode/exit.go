@@ -101,6 +101,10 @@ type profileHealth struct {
 	// Quota is the traffic quota the exit applies to this client. Nil when the
 	// exit has no quota for it or is too old to report one.
 	Quota *exitQuota
+	// Suspended is the temporary block the operator set in the web interface.
+	// The exit still knows the client but refuses every new connection until
+	// the block is lifted.
+	Suspended bool
 	// udpUnsupportedUntil keeps an exit that answered "command not supported"
 	// out of the UDP failover list for a while, so every DNS query does not pay
 	// for another refused handshake.
@@ -702,7 +706,7 @@ func (m *exitManager) isDenied(id string) bool {
 }
 
 // markLoad stores the counters the status API reported for this client.
-func (m *exitManager) markLoad(id string, connections, refused, quotaRefused, maxConns, udpAssociations, maxUDPAssociations int, quota *exitQuota) {
+func (m *exitManager) markLoad(id string, connections, refused, quotaRefused, maxConns, udpAssociations, maxUDPAssociations int, suspended bool, quota *exitQuota) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	health, ok := m.health[id]
@@ -716,6 +720,7 @@ func (m *exitManager) markLoad(id string, connections, refused, quotaRefused, ma
 	health.MaxConns = maxConns
 	health.UDPAssociations = udpAssociations
 	health.MaxUDPAssociations = maxUDPAssociations
+	health.Suspended = suspended
 	health.Quota = quota
 }
 
@@ -746,13 +751,13 @@ func (m *exitManager) markFailure(id string, err error) {
 	health.Error = err.Error()
 	health.CheckedAt = time.Now().Unix()
 	if isSocksDenied(err) {
-		// An exhausted traffic quota is answered with the same SOCKS reply as
-		// a real denial. It is not a denial of this device: the exit still
-		// knows the client and only refuses new connections until the cap
-		// resets. Marking it denied made the card flip between "Online" (the
-		// status API still answers) and "Not allowed" (the data path is
-		// refused) on every poll.
-		if health.Quota != nil && health.Quota.Exhausted {
+		// An exhausted traffic quota or an operator suspension is answered with
+		// the same SOCKS reply as a real denial. Neither denies this device: the
+		// exit still knows the client and only refuses new connections until
+		// the cap resets or the operator resumes it. Marking it denied made the
+		// card flip between "Online" (the status API still answers) and "Not
+		// allowed" (the data path is refused) on every poll.
+		if health.Suspended || (health.Quota != nil && health.Quota.Exhausted) {
 			health.State = exitStateOnline
 			return
 		}
@@ -1066,6 +1071,10 @@ type exitProfileStatus struct {
 	// Quota is the effective traffic quota of this client. Nil when the exit
 	// does not limit it or is too old to report quotas.
 	Quota *exitQuota `json:"quota,omitempty"`
+
+	// Suspended is the operator block from the exit web interface. It keeps the
+	// profile online, because the API answers; only new connections are refused.
+	Suspended bool `json:"suspended,omitempty"`
 }
 
 // exitQuota mirrors the quota block of the exit status API. Limits are 0 when
@@ -1163,6 +1172,7 @@ func (m *exitManager) statusBase() exitStatus {
 			item.UDPAssociations = health.UDPAssociations
 			item.MaxUDPAssociations = health.MaxUDPAssociations
 			item.Quota = health.Quota
+			item.Suspended = health.Suspended
 		}
 		// Publish a token learned at run time, unless the profile already
 		// carries the same one: the app saves the difference.
@@ -1214,6 +1224,7 @@ type exitAPIStatus struct {
 	Authenticated bool   `json:"authenticated"`
 	Auth          string `json:"auth"`
 	ExitName      string `json:"exitName"`
+	Suspended     bool   `json:"suspended"`
 
 	Connections        int        `json:"connections"`
 	Refused            int        `json:"refused"`
@@ -1400,7 +1411,8 @@ func (m *exitManager) checkProfile(ctx context.Context, profile ExitProfile) err
 		}
 		m.markAuth(profile.ID, authenticated, payload.Auth == "required" && !authenticated)
 		m.markLoad(profile.ID, payload.Connections, payload.Refused, payload.QuotaRefused,
-			payload.MaxConns, payload.UDPAssociations, payload.MaxUDPAssociations, payload.Quota)
+			payload.MaxConns, payload.UDPAssociations, payload.MaxUDPAssociations,
+			payload.Suspended, payload.Quota)
 		// Without a token the exit publishes nothing about allowlist, so a
 		// missing field is "unknown", not "denied".
 		if payload.Allowlisted != nil && !*payload.Allowlisted && !payload.Open {
