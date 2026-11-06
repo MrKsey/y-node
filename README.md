@@ -1,79 +1,135 @@
 # Y-Node
 
-A [Yggdrasil](https://yggdrasil-network.github.io/) client for Android. The app
-brings up a VPN tunnel and gives access to the internal resources of the
-Yggdrasil network.
+**English** · [Русский](README.ru.md)
 
-If you need a way out to the regular internet through Yggdrasil, you need a
-so-called exit node: a server that accepts traffic from Yggdrasil and sends it
-on to the open internet. Such a server is built for Y-Node —
-[X-Node](https://github.com/MrKsey/x-node): it is set up on Ubuntu with one
-command and connects clients by QR codes (see the X-Node project).
+**Y-Node** is a Yggdrasil network client for Android. The app runs the Yggdrasil network stack and provides access to IPv6 resources of the distributed network through Android's system VPN interface.
 
-*[Русская версия](README.ru.md)*
+## About the Yggdrasil network
+
+[Yggdrasil](https://yggdrasil-network.github.io/) is a decentralized IPv6 overlay network with routing between nodes. Participants connect to each other through peering connections that can run over a local network or the Internet. Nodes forward traffic, and routes between them are built automatically.
+
+Traffic inside Yggdrasil is end-to-end encrypted: intermediate nodes forward packets but cannot read their contents. Nodes are identified by a cryptographic key; a node's IPv6 address is derived from its identifier.
+
+Yggdrasil is not an anonymity network and does not by itself provide access to the regular Internet. Accessing public Internet resources through Yggdrasil requires a separate gateway — an **Exit Node**.
+
+Learn more about the architecture and principles: [official Yggdrasil documentation](https://yggdrasil-network.github.io/).
+
+## About the app
+
+Y-Node simplifies connecting an Android device to Yggdrasil and managing network traffic. The app uses Android's VPN API to route selected traffic through a virtual interface.
+
+To access the regular Internet through Yggdrasil, Y-Node supports **[X-Node](https://github.com/MrKsey/x-node)** servers. X-Node is deployed on Ubuntu and provides client connections via a QR code. Y-Node imports connection parameters from such a QR code.
+
+<p align="center">
+  <img src="docs/screenshots/screenshot-1.jpg" height="420" alt="Y-Node interface, screen 1">&nbsp;&nbsp;&nbsp;
+  <img src="docs/screenshots/screenshot-2.jpg" height="420" alt="Y-Node interface, screen 2">&nbsp;&nbsp;&nbsp;
+  <img src="docs/screenshots/screenshot-3.jpg" height="420" alt="Y-Node interface, screen 3">&nbsp;&nbsp;&nbsp;
+  <img src="docs/screenshots/screenshot-4.jpg" height="420" alt="Y-Node interface, screen 4">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/screenshot-5.jpg" height="420" alt="Y-Node interface, screen 5">&nbsp;&nbsp;&nbsp;
+  <img src="docs/screenshots/screenshot-6.jpg" height="420" alt="Y-Node interface, screen 6">&nbsp;&nbsp;&nbsp;
+  <img src="docs/screenshots/screenshot-7.jpg" height="420" alt="Y-Node interface, screen 7">
+</p>
+
+## Key features
+
+- **Connecting to Yggdrasil.** Start and stop the network tunnel from the app. Once connected, IPv6 addresses, sites and services hosted in Yggdrasil become available.
+- **Automatic public peer selection.** The app downloads a list of public nodes, measures latency and suggests suitable peers for connection.
+- **Connection health monitoring.** A supervisor tracks the availability and quality of the peers in use and replaces unavailable or noticeably slower nodes from the available pool when needed.
+- **Exit Node connection.** Import an X-Node profile via QR code and route regular Internet traffic through the selected gateway. Profiles support automatic failover; the connection to the Exit Node is direct, in a single hop.
+- **IPv6 routing.** Global IPv6 traffic can be routed through the Exit Node while Yggdrasil service ranges stay inside the overlay network. The app includes an IPv6 reachability check through the gateway.
+- **UDP and QUIC support.** UDP traffic, including DNS and applications using QUIC, is also routed through the Exit Node.
+- **Exit Node limits.** Display of traffic usage and information about speed limits or quotas when set by the server.
+- **Per-app routing.** You can choose which Android apps use the VPN tunnel and which keep working directly. Search and ready-made app presets are available.
+- **DNS.** Resolution of internal `.ygg` names; for regular domain names you can use the system DNS or specified DNS servers.
+- **Address book.** A catalogue of Yggdrasil resources with search, the ability to add your own addresses and open them in a browser.
 
 ## Installation
 
-1. Download the APK from the [latest release](https://github.com/MrKsey/y-node/releases/latest).
-   `arm64-v8a` fits most phones; `armeabi-v7a` is for older 32-bit devices.
-2. Allow installation from unknown sources and open the downloaded file.
-3. Launch the app: the first-run wizard checks public peers and offers to add
-   the best ones.
-4. Tap "Connect" and allow Android to create the VPN connection.
+1. Download the APK from the [latest releases](https://github.com/MrKsey/y-node/releases/latest).
+2. Choose the build for your device architecture:
+   - `arm64-v8a` — most modern Android devices;
+   - `armeabi-v7a` — devices with a 32-bit ARM architecture.
+3. Install the APK. If prompted, allow installing apps from the selected source in Android settings.
+4. Launch Y-Node. On first launch, the wizard checks public peers and offers to add suitable nodes.
+5. Tap **"Connect"** and confirm the VPN connection creation using Android tools.
 
-## Features
-
-- **Yggdrasil in one tap.** A real IPv6 tunnel into the distributed network:
-  `.ygg` addresses, internal sites and services open like any other.
-- **Public peers, handled for you.** The app downloads the peer list, measures
-  latency and keeps the fastest nodes. No hunting for addresses, copying keys
-  or editing configs.
-- **A connection that stays up.** A supervisor watches the peers and replaces a
-  dead or noticeably slower node from the pool, so the tunnel keeps working.
-- **Your own exit node.** One QR code and all regular traffic goes through the
-  node you trust. Profiles fail over automatically, and the phone connects to
-  the exit directly, in a single hop.
-- **IPv6 without surprises.** Global IPv6 addresses go through the exit while
-  Yggdrasil's service ranges stay inside the network. A built-in check shows
-  whether IPv6 really works.
-- **UDP and QUIC.** DNS, video calls and QUIC traffic also go through the exit
-  instead of trying to bypass the tunnel.
-- **Quotas under control.** If the exit node limits traffic or speed, the app
-  shows usage and a clear error instead of silently dropping connections.
-- **Per-app VPN.** Pick the apps that need the tunnel and leave the rest on the
-  direct connection. Search and ready-made presets included.
-- **Yggdrasil DNS.** Internal `.ygg` names resolve out of the box; regular
-  names go through the system DNS or servers you choose.
-- **Address book.** The best sites of the network are already there: add your
-  own, search and open them in a browser.
+To access only internal Yggdrasil resources, it is enough to configure a connection to peers. To route regular Internet traffic, you will additionally need an Exit Node profile, for example from X-Node.
 
 ## Building from source
 
-The build runs on Linux. Install Go, JDK 17, Flutter and the Android SDK with
-the NDK, then set the paths:
+The build runs on Linux. Go, JDK 17, Flutter, the Android SDK and the Android NDK are required.
+
+Configure the environment variables with the actual paths and installed NDK version:
 
 ```bash
 export ANDROID_HOME="$HOME/Android/Sdk"
 export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/<version>"
 export JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
 export PATH="$JAVA_HOME/bin:$(go env GOPATH)/bin:$PATH"
-
-# 1. Go bridge (requires Go, Android NDK and JDK 17)
-go install golang.org/x/mobile/cmd/gomobile@latest
-mkdir -p android/app/libs
-cd go-bridge
-gomobile init
-gomobile bind -target=android/arm,android/arm64 -androidapi=26 \
-  -ldflags=-checklinkname=0 -o ../android/app/libs/yggnode.aar ./yggnode
-cd ..
-
-# 2. APK for both architectures
-flutter pub get
-flutter build apk --release --target-platform android-arm,android-arm64 --split-per-abi
 ```
 
-The finished files land in `build/app/outputs/flutter-apk/`.
+### 1. Build the Go library for Android
+
+```bash
+go install golang.org/x/mobile/cmd/gomobile@latest
+
+mkdir -p android/app/libs
+cd go-bridge
+
+gomobile init
+gomobile bind   -target=android/arm,android/arm64   -androidapi=26   -ldflags=-checklinkname=0   -o ../android/app/libs/yggnode.aar   ./yggnode
+
+cd ..
+```
+
+### 2. Build the APK
+
+```bash
+flutter pub get
+
+flutter build apk   --release   --target-platform android-arm,android-arm64   --split-per-abi
+```
+
+The finished APK files will be in:
+
+```text
+build/app/outputs/flutter-apk/
+```
+
+## Donations
+
+You can support the project with a donation to any of the wallets below.
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="docs/screenshots/donate/bitcoin.jpg" width="220" alt="Bitcoin QR code"><br>
+      <b>Bitcoin</b><br>
+      <code>bc1qdf9wryj6tnyyr7ed4dkfv03nn0dxjf27xshfcr</code>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/donate/ethereum.jpg" width="220" alt="Ethereum QR code"><br>
+      <b>Ethereum</b><br>
+      <code>0xE22FAB5337A5506D9e7Ef9D4914De4d963Fbbf88</code>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="docs/screenshots/donate/solana.jpg" width="220" alt="Solana QR code"><br>
+      <b>Solana</b><br>
+      <code>7XcNM2M9rndFbJdjRtyycxkQXq8dPXEP87toiQX4EZfx</code>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/donate/tron.jpg" width="220" alt="Tron QR code"><br>
+      <b>Tron</b><br>
+      <code>TCYpTxSmdPN8p4fmRwtPGk3HHBf77FypeA</code>
+    </td>
+  </tr>
+</table>
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+The project is distributed under the [MIT](LICENSE) license.
