@@ -8,6 +8,7 @@ import 'home_screen.dart';
 import 'peers_screen.dart';
 import 'settings_screen.dart';
 import 'split_screen.dart';
+import 'update_dialog.dart';
 
 /// The five-tab shell of the app.
 ///
@@ -27,6 +28,19 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkForUpdate());
+  }
+
+  /// Startup release check. Announces a newer release once per version, and
+  /// only when the user turned the automatic check on.
+  Future<void> _checkForUpdate() async {
+    if (!mounted) return;
+    final state = context.read<AppState>();
+    final update = await state.checkForUpdateOnStart();
+    if (update == null || !mounted) return;
+    await state.markUpdateNotified(update);
+    if (!mounted) return;
+    await showUpdatePrompt(context, update, state.l10n);
   }
 
   @override

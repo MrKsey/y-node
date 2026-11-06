@@ -6,10 +6,12 @@ import 'package:url_launcher/url_launcher.dart';
 import '../core/theme.dart';
 import '../data/models.dart';
 import '../data/native.dart';
+import '../data/update_service.dart';
 import '../data/wiki.dart';
 import '../l10n/strings.dart';
 import '../state/app_state.dart';
 import 'log_screen.dart';
+import 'update_dialog.dart';
 import 'widgets.dart';
 
 /// The single connection configuration, plus everything around it: DNS, power
@@ -510,6 +512,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ],
           ),
           SectionCard(
+            title: l10n.t('sectionUpdate'),
+            children: [
+              SwitchListTile(
+                value: state.updateCheckEnabled,
+                onChanged: state.saveUpdateCheck,
+                title: Text(l10n.t('updateCheckAuto')),
+                subtitle: Text(
+                  l10n.t('updateCheckAutoHint'),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                enabled: !state.updateCheckInFlight,
+                leading: const Icon(Icons.refresh_rounded),
+                title: Text(
+                  state.updateCheckInFlight
+                      ? l10n.t('updateChecking')
+                      : l10n.t('updateCheckNow'),
+                ),
+                trailing: state.updateCheckInFlight
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.chevron_right_rounded),
+                onTap: state.updateCheckInFlight
+                    ? null
+                    : () => _checkForUpdates(context, state),
+              ),
+              if (state.availableUpdate != null) ...[
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.open_in_new_rounded),
+                  title: Text(
+                    l10n.tf('updateOpenFor', [state.availableUpdate!.version]),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () =>
+                      openReleasePage(context, state.availableUpdate!, l10n),
+                ),
+              ],
+            ],
+          ),
+          SectionCard(
             title: l10n.t('sectionAbout'),
             children: [
               InfoRow(
@@ -531,6 +581,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
+  }
+
+  /// Manual release check from the Update section. Reports the outcome inline:
+  /// up to date, a new version (opens the download dialog) or a failure.
+  Future<void> _checkForUpdates(BuildContext context, AppState state) async {
+    final l10n = state.l10n;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final update = await state.checkForUpdate();
+      if (!context.mounted) return;
+      if (update == null) {
+        messenger.showSnackBar(SnackBar(content: Text(l10n.t('updateLatest'))));
+        return;
+      }
+      await state.markUpdateNotified(update);
+      if (!context.mounted) return;
+      await showUpdatePrompt(context, update, l10n);
+    } on UpdateCheckException catch (e) {
+      if (!context.mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text(l10n.tf('updateFailed', [e.message]))),
+      );
+    }
   }
 
   static String? _dnsLabel(AppState state, String address) {

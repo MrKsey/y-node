@@ -30,12 +30,10 @@ class ExitNodeCard extends StatelessWidget {
     final active = status.active;
     final quota = active?.quota;
     final suspended = active?.suspended ?? false;
-    final quotaExhausted = quota?.exhausted ?? false;
-    // A quota or a suspension does not take the exit offline: the status API
-    // still answers, only new connections are refused. The icon turns orange
-    // so the state is visible at a glance instead of hiding behind a row.
-    final warning = suspended || quotaExhausted;
-    final accent = warning ? Colors.orange : ExitStatusUi.color(uiState);
+    // A suspension does not take the exit offline: the status API still
+    // answers, only new connections are refused. The pill names the state; the
+    // tunnel screen highlights the exit icon itself.
+    final pillColor = suspended ? Colors.orange : ExitStatusUi.color(uiState);
     final activeProfile = settings.exitActiveProfile;
     // Both self-check rows describe the live tunnel: the relay association and
     // the IPv6 path only exist while the data path is running. Without the
@@ -72,10 +70,11 @@ class ExitNodeCard extends StatelessWidget {
         ListTile(
           contentPadding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
           leading: CircleAvatar(
-            backgroundColor: accent.withValues(alpha: 0.14),
+            backgroundColor: ExitStatusUi.color(uiState)
+                .withValues(alpha: 0.14),
             child: Icon(
-              warning ? Icons.warning_amber_rounded : Icons.vpn_lock_rounded,
-              color: accent,
+              Icons.vpn_lock_rounded,
+              color: ExitStatusUi.color(uiState),
             ),
           ),
           title: Row(
@@ -86,7 +85,7 @@ class ExitNodeCard extends StatelessWidget {
                 label: suspended
                     ? l10n.t('exitSuspendedShort')
                     : ExitStatusUi.label(uiState, l10n),
-                color: accent,
+                color: pillColor,
               ),
             ],
           ),

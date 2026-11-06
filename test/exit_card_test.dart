@@ -153,9 +153,7 @@ void main() {
     expect(find.textContaining('at its limit of'), findsNothing);
   });
 
-  testWidgets('a suspended client is named and warns at a glance', (
-    tester,
-  ) async {
+  testWidgets('a suspended client is named in the exit card', (tester) async {
     const suspended = ExitStatus(
       enabled: true,
       state: 'online',
@@ -178,6 +176,8 @@ void main() {
 
     expect(find.text('The operator suspended this client'), findsOneWidget);
     expect(find.text('Suspended'), findsOneWidget);
-    expect(find.byIcon(Icons.warning_amber_rounded), findsOneWidget);
+    // The warning colour belongs to the exit icon on the tunnel screen, not to
+    // the lock icon of this card.
+    expect(find.byIcon(Icons.vpn_lock_rounded), findsWidgets);
   });
 }

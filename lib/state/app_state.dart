@@ -12,6 +12,7 @@ import '../data/models.dart';
 import '../data/native.dart';
 import '../data/peers_source.dart';
 import '../data/probe_service.dart';
+import '../data/update_service.dart';
 import '../data/web_directory.dart';
 import '../data/wiki.dart';
 import '../l10n/strings.dart';
@@ -28,6 +29,7 @@ class AppState extends ChangeNotifier {
     GeoIpService? geoIp,
     ProbeService? probeService,
     WikiService? wiki,
+    UpdateService? updateService,
   }) : _peersSource =
            peersSource ??
            PeersSource(
@@ -36,12 +38,14 @@ class AppState extends ChangeNotifier {
            ),
        _geoIp = geoIp ?? GeoIpService(),
        _probe = probeService ?? ProbeService(),
-       _wiki = wiki ?? WikiService();
+       _wiki = wiki ?? WikiService(),
+       _updates = updateService ?? UpdateService();
 
   final PeersSource _peersSource;
   final GeoIpService _geoIp;
   final ProbeService _probe;
   final WikiService _wiki;
+  final UpdateService _updates;
 
   // Storage keys, shared with `Prefs.kt`.
   static const String _kSettings = 'settings';
@@ -55,6 +59,10 @@ class AppState extends ChangeNotifier {
   static const String _kPeersUpdated = 'peers_updated_at';
   static const String _kPeerSnapshot = 'peers_snapshot';
   static const String _kPeerErrors = 'peer_errors';
+
+  /// Automatic release check and the version the user was already told about.
+  static const String _kUpdateCheck = 'update_check';
+  static const String _kUpdateNotified = 'update_notified';
 
   /// The last public peer list that came from the network, so the app still has
   /// a catalogue when GitHub is unreachable.
@@ -168,6 +176,20 @@ class AppState extends ChangeNotifier {
   String yggVersion = '';
   bool batteryExempt = false;
   bool notificationsAllowed = true;
+
+  /// Automatic release check against the project's GitHub releases. Off by
+  /// default: the check contacts GitHub, so the user opts in from Settings.
+  bool updateCheckEnabled = false;
+
+  /// The last newer release found by a check, or null when the build is up to
+  /// date. The Update section keeps it after the dialog is dismissed.
+  UpdateInfo? availableUpdate;
+
+  /// True while a release check is in flight.
+  bool updateCheckInFlight = false;
+
+  /// The version the user was already notified about at startup.
+  String _lastNotifiedVersion = '';
 
   DateTime? peersUpdatedAt;
 
@@ -344,6 +366,8 @@ class AppState extends ChangeNotifier {
     countrySlug = stored[_kCountry] ?? '';
     onboarded = stored[_kOnboarded] == '1';
     browserHintDismissed = stored[_kBrowserHintOff] == '1';
+    updateCheckEnabled = stored[_kUpdateCheck] == '1';
+    _lastNotifiedVersion = stored[_kUpdateNotified] ?? '';
     probeAlive = _probeFromPeers(
       PeerEntry.listFromJson(stored[_kPeerSnapshot]),
     );
@@ -672,6 +696,55 @@ class AppState extends ChangeNotifier {
     browserHintDismissed = true;
     notifyListeners();
     await Native.write(_kBrowserHintOff, '1');
+  }
+
+  /// Persists the automatic update-check preference.
+  Future<void> saveUpdateCheck(bool enabled) async {
+    updateCheckEnabled = enabled;
+    notifyListeners();
+    await Native.write(_kUpdateCheck, enabled ? '1' : '');
+  }
+
+  /// Runs a release check. Throws [UpdateCheckException] when it fails. On
+  /// success [availableUpdate] holds the newer release, or null when the app is
+  /// up to date.
+  Future<UpdateInfo?> checkForUpdate() async {
+    if (updateCheckInFlight) return availableUpdate;
+    updateCheckInFlight = true;
+    notifyListeners();
+    try {
+      if (appVersion.isEmpty) {
+        appVersion = await Native.appVersion();
+      }
+      final update = await _updates.checkForUpdate(currentVersion: appVersion);
+      availableUpdate = update;
+      return update;
+    } finally {
+      updateCheckInFlight = false;
+      notifyListeners();
+    }
+  }
+
+  /// Startup check. Announces a newer release once per version, and only when
+  /// the user turned the automatic check on.
+  Future<UpdateInfo?> checkForUpdateOnStart() async {
+    if (!updateCheckEnabled) return null;
+    try {
+      final update = await checkForUpdate();
+      if (update == null || update.version == _lastNotifiedVersion) return null;
+      return update;
+    } catch (_) {
+      // A failed startup check is silent: it must not interrupt the tunnel.
+      // The manual "Check for updates now" reports the error instead.
+      return null;
+    }
+  }
+
+  /// Remembers the release the user was already shown, so the same version is
+  /// not announced on every start.
+  Future<void> markUpdateNotified(UpdateInfo info) async {
+    _lastNotifiedVersion = info.version;
+    await Native.write(_kUpdateNotified, info.version);
   }
 
   Future<void> refreshBattery() async {

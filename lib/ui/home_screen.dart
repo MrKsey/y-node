@@ -39,6 +39,13 @@ class HomeScreen extends StatelessWidget {
     final exitName = (state.exitStatus.active?.name.isNotEmpty ?? false)
         ? state.exitStatus.active!.name
         : (state.settings.exitActiveProfile?.title ?? '');
+    // A quota or an operator suspension keeps the tunnel up: only the exit
+    // refuses new connections. The exit end of the hero link is the place the
+    // user looks at, so it carries the warning colour instead of the exit card.
+    final exitStatus = state.exitStatus.active;
+    final exitWarning =
+        (exitStatus?.suspended ?? false) ||
+        (exitStatus?.quota?.exhausted ?? false);
     PeerEntry? exitPeer;
     for (final peer in state.peers) {
       if (peer.pinned) {
@@ -83,6 +90,7 @@ class HomeScreen extends StatelessWidget {
               exitCountry: exitPeer?.country ?? '',
               exitOn: state.settings.exitActive,
               exitInUse: state.exitInUse,
+              exitWarning: exitWarning,
               onIpRequest: (anchor, viaExit) => showIpBalloon(
                 context: context,
                 anchorContext: anchor,
@@ -496,6 +504,7 @@ class _Hero extends StatefulWidget {
     required this.exitCountry,
     required this.exitOn,
     required this.exitInUse,
+    required this.exitWarning,
     required this.onIpRequest,
     this.errorText,
   });
@@ -523,6 +532,10 @@ class _Hero extends StatefulWidget {
 
   /// The tunnel is up and public traffic really goes through the exit.
   final bool exitInUse;
+
+  /// The exit refuses traffic because its quota is used up or the operator
+  /// suspended this client.
+  final bool exitWarning;
 
   /// Opens the address balloon: the phone's own address or the one the exit
   /// sends the traffic from. The first argument is the widget to point at.
@@ -579,6 +592,9 @@ class _HeroState extends State<_Hero> with SingleTickerProviderStateMixin {
     final active = widget.establishing || widget.busy;
     final linkUp = widget.connected || active;
     final exitLit = widget.exitOn && linkUp;
+    final exitColor = widget.exitWarning && exitLit
+        ? Colors.orange
+        : theme.colorScheme.primary;
     final exitLabel = widget.exitName.isEmpty
         ? l10n.t('exitNode')
         : HomeScreen._shortExitName(widget.exitName);
@@ -660,7 +676,7 @@ class _HeroState extends State<_Hero> with SingleTickerProviderStateMixin {
                 Expanded(
                   child: _FlowLink(
                     animation: _pulse,
-                    color: theme.colorScheme.primary,
+                    color: exitColor,
                     on: exitLit,
                     phase: 0.35,
                   ),
@@ -669,9 +685,10 @@ class _HeroState extends State<_Hero> with SingleTickerProviderStateMixin {
                   label: exitLabel,
                   flag: countryFlag(widget.exitCountry),
                   icon: Icons.vpn_lock_rounded,
-                  color: theme.colorScheme.primary,
+                  color: exitColor,
                   active: exitLit,
                   locked: widget.exitInUse,
+                  warning: widget.exitWarning && exitLit,
                   hint: l10n.t('ipTapHint'),
                   onTap: (anchor) => widget.onIpRequest(anchor, true),
                 ),
@@ -865,6 +882,7 @@ class _HeroEntity extends StatelessWidget {
     this.icon,
     this.flag = '',
     this.locked = false,
+    this.warning = false,
     this.hint = '',
     this.onTap,
   });
@@ -879,6 +897,10 @@ class _HeroEntity extends StatelessWidget {
 
   /// The exit node public traffic goes through right now.
   final bool locked;
+
+  /// The exit refuses traffic: the quota is used up or the operator suspended
+  /// this client. The icon turns orange and carries a warning badge.
+  final bool warning;
 
   /// What a tap does, for a screen reader.
   final String hint;
@@ -954,6 +976,27 @@ class _HeroEntity extends StatelessWidget {
                         child: Icon(
                           Icons.lock_rounded,
                           size: 8,
+                          color: theme.colorScheme.onPrimary,
+                        ),
+                      ),
+                    ),
+                  if (warning)
+                    Positioned(
+                      right: -2,
+                      top: -2,
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          color: color,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: theme.colorScheme.surface,
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Icon(
+                          Icons.priority_high_rounded,
+                          size: 9,
                           color: theme.colorScheme.onPrimary,
                         ),
                       ),
