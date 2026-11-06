@@ -20,6 +20,26 @@ Y-Node simplifies connecting an Android device to Yggdrasil and managing network
 
 To access the regular Internet through Yggdrasil, Y-Node supports **[X-Node](https://github.com/MrKsey/x-node)** servers. X-Node is deployed on Ubuntu and provides client connections via a QR code. Y-Node imports connection parameters from such a QR code.
 
+```text
+Yggdrasil resources only, no exit node
+
+┌───────────────────┐      ┌────────────────┐      ┌─────────────────────────┐
+│    Android apps   │      │     Y-Node     │      │    Yggdrasil network    │
+│ browser, Telegram │ ───► │ VPN interface  │ ───► │ sites and services .ygg │
+│ other apps        │ ◄─── │ Yggdrasil node │ ◄─── │ addresses 200::/7       │
+└───────────────────┘      └────────────────┘      └─────────────────────────┘
+
+Regular Internet, through the exit node
+
+┌───────────────────┐      ┌────────────────┐      ┌────────────────────┐      ┌──────────────┐
+│    Android apps   │      │     Y-Node     │      │ X-Node (Exit Node) │      │   Internet   │
+│ browser, Telegram │ ───► │ VPN interface  │ ───► │ SOCKS5             │ ───► │ sites        │
+│ other apps        │ ◄─── │ Yggdrasil node │ ◄─── │ quotas, allowlist  │ ◄─── │ and services │
+└───────────────────┘      └────────────────┘      └────────────────────┘      └──────────────┘
+```
+
+Without an exit node the app only gives access to Yggdrasil resources, and regular traffic goes directly through the phone's own network. With an exit node it travels over Yggdrasil to X-Node and leaves for the Internet from there.
+
 <p align="center">
   <img src="docs/screenshots/screenshot-1.jpg" height="420" alt="Y-Node interface, screen 1">&nbsp;&nbsp;&nbsp;
   <img src="docs/screenshots/screenshot-2.jpg" height="420" alt="Y-Node interface, screen 2">&nbsp;&nbsp;&nbsp;
