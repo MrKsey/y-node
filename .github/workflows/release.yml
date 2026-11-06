@@ -143,6 +143,26 @@ jobs:
           sha256sum ./* > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
+      - name: release notes
+        run: |
+          set -euo pipefail
+          version="$(awk '/^version:/ {print $2}' pubspec.yaml)"
+          version="${version%%+*}"
+          # The CHANGELOG section of this version is what users read on the
+          # release page: every release must say in a few lines what changed,
+          # so a missing section stops the publish instead of shipping an
+          # auto-generated commit list.
+          awk -v ver="$version" '
+            index($0, "## [" ver "]") == 1 { inside = 1; next }
+            inside && index($0, "## [") == 1 { exit }
+            inside { print }
+          ' CHANGELOG.md > release-notes.md
+          if ! grep -q '[^[:space:]]' release-notes.md; then
+            echo "CHANGELOG.md has no section for ${version}" >&2
+            exit 1
+          fi
+          cat release-notes.md
+
       - name: publish
         env:
           GH_TOKEN: ${{ github.token }}
@@ -152,8 +172,11 @@ jobs:
           version="${version%%+*}"
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+            gh release edit "$GITHUB_REF_NAME" \
+              --title "Y-Node ${version}" \
+              --notes-file release-notes.md
           else
             gh release create "$GITHUB_REF_NAME" dist/* \
               --title "Y-Node ${version}" \
-              --generate-notes
+              --notes-file release-notes.md
           fi
