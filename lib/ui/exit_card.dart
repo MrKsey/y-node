@@ -437,7 +437,13 @@ class _UdpRow extends StatelessWidget {
                 : const Icon(Icons.science_outlined, size: 20),
           ),
         ),
-        if (load != null && load.hitLimit && !load.quotaExhausted)
+        // A suspension is not a connection limit: the exit refuses everything
+        // while the operator keeps the client blocked. An older exit counts
+        // those refusals in "refused", which used to look like a limit of 256.
+        if (load != null &&
+            !load.suspended &&
+            load.hitLimit &&
+            !load.quotaExhausted)
           ListTile(
             dense: true,
             contentPadding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
@@ -449,10 +455,10 @@ class _UdpRow extends StatelessWidget {
             title: Text(
               load.maxConns > 0
                   ? l10n.tf('exitUdpLimit', [
-                      '${load.refused}',
+                      '${load.limitRefused}',
                       '${load.maxConns}',
                     ])
-                  : l10n.tf('exitUdpLimitNoMax', ['${load.refused}']),
+                  : l10n.tf('exitUdpLimitNoMax', ['${load.limitRefused}']),
               style: theme.textTheme.bodySmall?.copyWith(color: Colors.orange),
             ),
             subtitle: Text(

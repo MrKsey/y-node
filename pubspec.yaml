@@ -1,7 +1,7 @@
 name: y_node
 description: "Y-Node — a Yggdrasil network client for Android."
 publish_to: 'none'
-version: 1.4.4+24
+version: 1.4.5+25
 
 environment:
   sdk: ^3.13.5

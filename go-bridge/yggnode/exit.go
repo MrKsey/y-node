@@ -92,9 +92,13 @@ type profileHealth struct {
 	// Load reported by the status API of the exit. Refused is the number of
 	// connections the exit turned away since it started, which is how the app
 	// tells a limit problem from a dead exit.
-	Connections        int
-	Refused            int
-	QuotaRefused       int
+	Connections  int
+	Refused      int
+	QuotaRefused int
+	// LimitRefused is the part of Refused caused by the connection limit. The
+	// exit counts quota and suspension refusals separately; nil when the
+	// server is too old to report it.
+	LimitRefused       *int
 	MaxConns           int
 	UDPAssociations    int
 	MaxUDPAssociations int
@@ -706,7 +710,7 @@ func (m *exitManager) isDenied(id string) bool {
 }
 
 // markLoad stores the counters the status API reported for this client.
-func (m *exitManager) markLoad(id string, connections, refused, quotaRefused, maxConns, udpAssociations, maxUDPAssociations int, suspended bool, quota *exitQuota) {
+func (m *exitManager) markLoad(id string, connections, refused, quotaRefused int, limitRefused *int, maxConns, udpAssociations, maxUDPAssociations int, suspended bool, quota *exitQuota) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	health, ok := m.health[id]
@@ -717,6 +721,12 @@ func (m *exitManager) markLoad(id string, connections, refused, quotaRefused, ma
 	health.Connections = connections
 	health.Refused = refused
 	health.QuotaRefused = quotaRefused
+	if limitRefused != nil {
+		value := *limitRefused
+		health.LimitRefused = &value
+	} else {
+		health.LimitRefused = nil
+	}
 	health.MaxConns = maxConns
 	health.UDPAssociations = udpAssociations
 	health.MaxUDPAssociations = maxUDPAssociations
@@ -1061,12 +1071,15 @@ type exitProfileStatus struct {
 	Token string `json:"token,omitempty"`
 
 	// Load of this client on the exit, from the last status poll.
-	Connections        int `json:"connections"`
-	Refused            int `json:"refused"`
-	QuotaRefused       int `json:"quotaRefused,omitempty"`
-	MaxConns           int `json:"maxConns"`
-	UDPAssociations    int `json:"udpAssociations"`
-	MaxUDPAssociations int `json:"maxUdpAssociations"`
+	Connections  int `json:"connections"`
+	Refused      int `json:"refused"`
+	QuotaRefused int `json:"quotaRefused,omitempty"`
+	// LimitRefused is sent by exits from 1.6.11. A pointer keeps a real zero
+	// distinct from "the server does not send the field".
+	LimitRefused       *int `json:"limitRefused,omitempty"`
+	MaxConns           int  `json:"maxConns"`
+	UDPAssociations    int  `json:"udpAssociations"`
+	MaxUDPAssociations int  `json:"maxUdpAssociations"`
 
 	// Quota is the effective traffic quota of this client. Nil when the exit
 	// does not limit it or is too old to report quotas.
@@ -1168,6 +1181,7 @@ func (m *exitManager) statusBase() exitStatus {
 			item.Connections = health.Connections
 			item.Refused = health.Refused
 			item.QuotaRefused = health.QuotaRefused
+			item.LimitRefused = health.LimitRefused
 			item.MaxConns = health.MaxConns
 			item.UDPAssociations = health.UDPAssociations
 			item.MaxUDPAssociations = health.MaxUDPAssociations
@@ -1229,6 +1243,7 @@ type exitAPIStatus struct {
 	Connections        int        `json:"connections"`
 	Refused            int        `json:"refused"`
 	QuotaRefused       int        `json:"quotaRefused"`
+	LimitRefused       *int       `json:"limitRefused"`
 	MaxConns           int        `json:"maxConnsPerClient"`
 	UDPAssociations    int        `json:"udpAssociations"`
 	MaxUDPAssociations int        `json:"maxUdpAssociations"`
@@ -1411,7 +1426,7 @@ func (m *exitManager) checkProfile(ctx context.Context, profile ExitProfile) err
 		}
 		m.markAuth(profile.ID, authenticated, payload.Auth == "required" && !authenticated)
 		m.markLoad(profile.ID, payload.Connections, payload.Refused, payload.QuotaRefused,
-			payload.MaxConns, payload.UDPAssociations, payload.MaxUDPAssociations,
+			payload.LimitRefused, payload.MaxConns, payload.UDPAssociations, payload.MaxUDPAssociations,
 			payload.Suspended, payload.Quota)
 		// Without a token the exit publishes nothing about allowlist, so a
 		// missing field is "unknown", not "denied".

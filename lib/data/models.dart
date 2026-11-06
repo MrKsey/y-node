@@ -417,6 +417,7 @@ class ExitProfileStatus {
     this.connections = 0,
     this.refused = 0,
     this.quotaRefused = 0,
+    this.serverLimitRefused,
     this.maxConns = 0,
     this.udpAssociations = 0,
     this.maxUdpAssociations = 0,
@@ -447,6 +448,11 @@ class ExitProfileStatus {
   /// connection limit. The app uses it to name the right reason.
   final int quotaRefused;
 
+  /// The connection-limit refusals as counted by the exit itself, null when
+  /// the server is too old to send the field. Newer exits exclude quota and
+  /// suspension refusals, which are not a limit.
+  final int? serverLimitRefused;
+
   /// The limits the exit reports, 0 when the server is too old to send them.
   final int maxConns;
   final int udpAssociations;
@@ -470,8 +476,12 @@ class ExitProfileStatus {
   /// profile; empty when the profile already has one.
   final String token;
 
-  /// Refusals caused by the connection limit, excluding quota refusals.
+  /// Refusals caused by the connection limit, excluding quota and suspension
+  /// refusals. A server from 1.6.11 reports the value directly; an older one
+  /// only has the two counters, so the difference is used instead.
   int get limitRefused {
+    final reported = serverLimitRefused;
+    if (reported != null) return reported > 0 ? reported : 0;
     final value = refused - quotaRefused;
     return value > 0 ? value : 0;
   }
@@ -500,6 +510,7 @@ class ExitProfileStatus {
         connections: (json['connections'] as num?)?.toInt() ?? 0,
         refused: (json['refused'] as num?)?.toInt() ?? 0,
         quotaRefused: (json['quotaRefused'] as num?)?.toInt() ?? 0,
+        serverLimitRefused: (json['limitRefused'] as num?)?.toInt(),
         maxConns: (json['maxConns'] as num?)?.toInt() ?? 0,
         udpAssociations: (json['udpAssociations'] as num?)?.toInt() ?? 0,
         maxUdpAssociations: (json['maxUdpAssociations'] as num?)?.toInt() ?? 0,
@@ -522,6 +533,7 @@ class ExitProfileStatus {
     connections: connections,
     refused: refused,
     quotaRefused: quotaRefused,
+    serverLimitRefused: serverLimitRefused,
     maxConns: maxConns,
     udpAssociations: udpAssociations,
     maxUdpAssociations: maxUdpAssociations,

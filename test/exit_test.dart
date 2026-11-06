@@ -290,6 +290,33 @@ void main() {
     expect(old!.active?.suspended, isFalse);
   });
 
+  test('a suspended refusal is not a connection limit', () {
+    // The exit refused the client because the operator suspended it, not
+    // because a connection limit was reached. The server counts that part
+    // separately and sends limitRefused: 0.
+    final status = ExitStatus.tryParse(
+      '{"enabled":true,"state":"online","activeId":"202::1:1080",'
+      '"profiles":[{"id":"202::1:1080","state":"online",'
+      '"refused":2,"suspendedRefused":2,"limitRefused":0}]}',
+    );
+    final active = status!.active!;
+    expect(active.refused, 2);
+    expect(active.limitRefused, 0);
+    expect(active.hitLimit, isFalse);
+  });
+
+  test('a reported limit refusal wins over the old subtraction', () {
+    final status = ExitStatus.tryParse(
+      '{"enabled":true,"state":"online","activeId":"202::1:1080",'
+      '"profiles":[{"id":"202::1:1080","state":"online",'
+      '"refused":5,"quotaRefused":4,"suspendedRefused":0,'
+      '"limitRefused":1,"maxConns":256}]}',
+    );
+    final active = status!.active!;
+    expect(active.limitRefused, 1);
+    expect(active.hitLimit, isTrue);
+  });
+
   test('the UDP check result is read from the bridge JSON', () {
     final result = UdpProbeResult.tryParse(
       '{"ok":true,"state":"ok","profile":"Fin-exit",'
