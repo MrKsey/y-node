@@ -83,21 +83,76 @@ func TestExitOrderedPutsActiveFirst(t *testing.T) {
 }
 
 func TestExitCarriesIPv6OnlyWhenEnabled(t *testing.T) {
-	manager := &exitManager{cfg: exitConfig{
-		Enabled:  true,
-		Profiles: []ExitProfile{{ID: "a", Name: "a"}},
-	}}
+	manager, err := newExitManager(`{"enabled":true,"profiles":[{"address":"200::1","socksPort":1080,"apiPort":1081}]}`, nil, nil, &goLogger{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !manager.carriesIPv6() {
 		t.Fatal("an enabled exit must carry IPv6")
 	}
-	manager.cfg.Enabled = false
-	if manager.carriesIPv6() {
+	disabled, err := newExitManager(`{"enabled":false,"profiles":[{"address":"200::1","socksPort":1080,"apiPort":1081}]}`, nil, nil, &goLogger{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if disabled.carriesIPv6() {
 		t.Fatal("a disabled exit must not carry IPv6")
 	}
-	manager.cfg.Enabled = true
-	manager.cfg.Profiles = nil
-	if manager.carriesIPv6() {
+	empty, err := newExitManager(`{"enabled":true,"profiles":[]}`, nil, nil, &goLogger{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if empty.carriesIPv6() {
 		t.Fatal("an exit without profiles must not carry IPv6")
+	}
+}
+
+// The exit tells the client whether its own host can reach IPv6. A broken
+// provider is the case that used to look healthy: the interface is up, but
+// every packet is dropped, so the tunnel must stop sending IPv6.
+func TestExitCarriesIPv6FollowsExitCapabilities(t *testing.T) {
+	manager, err := newExitManager(`{"enabled":true,"profiles":[{"address":"200::1","socksPort":1080,"apiPort":1081}]}`, nil, nil, &goLogger{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.markCapabilities("200::1:1080", &exitAPICapabilities{IPv6: false, IPv6State: "broken"})
+	if manager.carriesIPv6() {
+		t.Fatal("IPv6 was carried after the exit reported a broken route")
+	}
+	status := manager.status()
+	if status.Profiles[0].IPv6Available == nil || *status.Profiles[0].IPv6Available {
+		t.Fatalf("ipv6Available = %v", status.Profiles[0].IPv6Available)
+	}
+	if status.Profiles[0].IPv6State != "broken" {
+		t.Fatalf("ipv6State = %q", status.Profiles[0].IPv6State)
+	}
+	manager.markCapabilities("200::1:1080", &exitAPICapabilities{IPv6: true, IPv6State: "ok"})
+	if !manager.carriesIPv6() {
+		t.Fatal("IPv6 was not restored after the exit recovered")
+	}
+	// A status without capabilities (an old exit, or one answered without a
+	// token) must not change the decision.
+	manager.markCapabilities("200::1:1080", nil)
+	if !manager.carriesIPv6() {
+		t.Fatal("a status without capabilities disabled IPv6")
+	}
+}
+
+// One profile with a working IPv6 path keeps the tunnel carrying IPv6 even when
+// another profile reports that its provider is broken.
+func TestExitCarriesIPv6WhenAnyProfileWorks(t *testing.T) {
+	manager, err := newExitManager(`{"enabled":true,"profiles":[
+		{"address":"200::1","socksPort":1080,"apiPort":1081},
+		{"address":"200::2","socksPort":1080,"apiPort":1081}]}`, nil, nil, &goLogger{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.markCapabilities("200::1:1080", &exitAPICapabilities{IPv6: false, IPv6State: "none"})
+	if !manager.carriesIPv6() {
+		t.Fatal("an unpolled profile must count as a possible IPv6 path")
+	}
+	manager.markCapabilities("200::2:1080", &exitAPICapabilities{IPv6: false, IPv6State: "broken"})
+	if manager.carriesIPv6() {
+		t.Fatal("IPv6 was carried although no profile can reach it")
 	}
 }
 

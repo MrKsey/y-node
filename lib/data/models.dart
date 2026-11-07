@@ -277,6 +277,16 @@ class ExitProfile {
 
   String get title => name.trim().isNotEmpty ? name.trim() : address;
 
+  /// True when the profile was added as a plain SOCKS5 proxy: only the
+  /// Yggdrasil address and the port are known. The data path works, because the
+  /// exit authorises the node by its Yggdrasil address, but the status API
+  /// answers with the minimal payload until a token is added.
+  bool get socksOnly => token.trim().isEmpty && invite.trim().isEmpty;
+
+  /// True when the exit may not be reachable over the public mesh: without a
+  /// pinned peer the route to it depends on other nodes.
+  bool get needsPeer => peer.trim().isEmpty;
+
   factory ExitProfile.fromJson(Map<String, dynamic> json) {
     final address = ((json['address'] as String?) ?? '').trim();
     final socks = (json['socksPort'] as num?)?.toInt() ?? 1080;
@@ -425,6 +435,8 @@ class ExitProfileStatus {
     this.suspended = false,
     this.authenticated = true,
     this.token = '',
+    this.ipv6Available,
+    this.ipv6State = '',
   });
 
   final String id;
@@ -476,6 +488,23 @@ class ExitProfileStatus {
   /// profile; empty when the profile already has one.
   final String token;
 
+  /// What the exit reported about its own outbound IPv6: true when a global
+  /// address answered, false when the host has no address or the provider does
+  /// not route it. Null when the exit is too old to report the capability, or
+  /// answered without a token.
+  final bool? ipv6Available;
+
+  /// The short reason behind [ipv6Available]: `ok`, `none`, `broken`, `off` or
+  /// `checking`.
+  final String ipv6State;
+
+  /// True when the exit has IPv6 but cannot reach the internet over it. The
+  /// tunnel then stops sending IPv6 traffic instead of letting it time out.
+  bool get ipv6Broken => ipv6Available == false && ipv6State == 'broken';
+
+  /// True when the exit has no global IPv6 address at all.
+  bool get ipv6Missing => ipv6Available == false && ipv6State == 'none';
+
   /// Refusals caused by the connection limit, excluding quota and suspension
   /// refusals. A server from 1.6.11 reports the value directly; an older one
   /// only has the two counters, so the difference is used instead.
@@ -520,6 +549,10 @@ class ExitProfileStatus {
         suspended: (json['suspended'] as bool?) ?? false,
         authenticated: (json['authenticated'] as bool?) ?? true,
         token: ((json['token'] as String?) ?? '').trim(),
+        ipv6Available: json['ipv6Available'] is bool
+            ? json['ipv6Available'] as bool
+            : null,
+        ipv6State: ((json['ipv6State'] as String?) ?? '').trim(),
       );
 
   ExitProfileStatus copyWith({String? name}) => ExitProfileStatus(
@@ -541,6 +574,8 @@ class ExitProfileStatus {
     suspended: suspended,
     authenticated: authenticated,
     token: token,
+    ipv6Available: ipv6Available,
+    ipv6State: ipv6State,
   );
 }
 

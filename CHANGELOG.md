@@ -4,6 +4,20 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.4.6] — 2026-11-08
+
+### Added
+
+- An exit node can be added as a plain SOCKS5 proxy: only the Yggdrasil address and the port are needed. Such a profile is marked **SOCKS5** in the card and the list, recommends adding the exit as a peer, and can be turned into a full profile later by adding an API token or an invite.
+- The edit dialog has an API token field, so a token issued by the exit can be pasted into an existing profile. A token learned by the bridge is still saved automatically.
+- A `yggnode://exit` link without an invite is accepted and adds the node as a SOCKS5-only profile. This is the link X-Node shows for a client that is already allowed, so a deleted exit profile can be restored without a new invite.
+- The exit card and the profile list show the IPv6 state reported by the exit: no address, or an address the provider does not route.
+
+### Fixed
+
+- IPv6 traffic is no longer sent through an exit whose provider does not route it. The bridge follows the `ipv6` capability of the exit status and stops forwarding IPv6 packets that could only time out, without restarting the tunnel.
+- Editing an exit profile no longer drops its stored API token.
+
 ## [1.4.5] — 2026-11-06
 
 ### Fixed

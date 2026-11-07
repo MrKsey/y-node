@@ -156,6 +156,32 @@ func TestIsGlobalIPv6(t *testing.T) {
 	}
 }
 
+// The IPv6 decision is asked from the carrier for every packet, so an exit
+// that reports a broken provider disables the path without a tunnel restart,
+// and a recovered one restores it.
+func TestTun2SocksIPv6FollowsCarrier(t *testing.T) {
+	writer := newPacketSink()
+	dialer := newStubDialer(true)
+	stack, err := newTun2Socks(1280, nil, writer, dialer, nil, &goLogger{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stack.stop()
+
+	destination := tcpip.AddrFromSlice(net.ParseIP("2606:4700:4700::1111"))
+	if !stack.canForward(destination) {
+		t.Fatal("a global IPv6 destination was refused with a working carrier")
+	}
+	dialer.ipv6 = false
+	if stack.canForward(destination) {
+		t.Fatal("IPv6 was still forwarded after the carrier stopped carrying it")
+	}
+	dialer.ipv6 = true
+	if !stack.canForward(destination) {
+		t.Fatal("IPv6 was not restored after the carrier recovered")
+	}
+}
+
 func TestForwardTCPIPv6ThroughExit(t *testing.T) {
 	writer := newPacketSink()
 	dialer := newStubDialer(true)

@@ -593,7 +593,8 @@ class AppState extends ChangeNotifier {
           '${profile.quota?.monthlyBytes}|${profile.quota?.dailyBytes}|'
           '${profile.quota?.downKbps}|${profile.quota?.upKbps}|'
           '${profile.quota?.dayUsed}|${profile.quota?.monthUsed}|'
-          '${profile.quota?.exhausted}|${profile.quota?.reason}',
+          '${profile.quota?.exhausted}|${profile.quota?.reason}|'
+          '${profile.ipv6Available}|${profile.ipv6State}',
   ].join('|');
 
   void _listenToStatus() {

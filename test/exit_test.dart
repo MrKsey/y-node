@@ -27,13 +27,34 @@ void main() {
     );
   });
 
-  test('an invite without a token is rejected', () {
-    expect(
-      ExitInvite.parse(
-        'yggnode://exit?a=202:24ae:c219:8a4a:de94:eae2:b97e:ac87',
-      ),
-      isNull,
+  test('a link without an invite is a plain SOCKS5 profile', () {
+    // This is the link an exit shows for a client that is already allowed,
+    // for example after the profile was deleted in the app.
+    final invite = ExitInvite.parse(
+      'yggnode://exit?v=1&a=202:24ae:c219:8a4a:de94:eae2:b97e:ac87&p=1080',
     );
+    expect(invite, isNotNull);
+    expect(invite!.invite, isEmpty);
+    expect(invite.profile.socksOnly, isTrue);
+    expect(invite.profile.socksPort, 1080);
+    expect(invite.profile.apiPort, 1081);
+  });
+
+  test('a profile with a token or an invite is not SOCKS5 only', () {
+    const tokenOnly = ExitProfile(
+      id: 'a',
+      name: 'a',
+      address: '202::1',
+      token: 'api-token',
+    );
+    expect(tokenOnly.socksOnly, isFalse);
+    const inviteOnly = ExitProfile(
+      id: 'b',
+      name: 'b',
+      address: '202::2',
+      invite: 'invite',
+    );
+    expect(inviteOnly.socksOnly, isFalse);
   });
 
   test('a pasted invite survives the line breaks of a chat app', () {
@@ -236,6 +257,24 @@ void main() {
     expect(active.maxConns, 0);
     expect(active.hitLimit, isFalse);
     expect(active.quota, isNull);
+  });
+
+  test('the exit status carries its own IPv6 state', () {
+    final status = ExitStatus.tryParse(
+      '{"enabled":true,"activeId":"a","profiles":[{"id":"a",'
+      '"state":"online","ipv6Available":false,"ipv6State":"broken"}]}',
+    );
+    final active = status!.active!;
+    expect(active.ipv6Available, isFalse);
+    expect(active.ipv6Broken, isTrue);
+    expect(active.ipv6Missing, isFalse);
+    // An old exit does not send the field: the app must not claim a state it
+    // does not know.
+    final old = ExitStatus.tryParse(
+      '{"enabled":true,"activeId":"a","profiles":[{"id":"a"}]}',
+    );
+    expect(old!.active!.ipv6Available, isNull);
+    expect(old.active!.ipv6Broken, isFalse);
   });
 
   test('the exit status carries the quota and separates its refusals', () {

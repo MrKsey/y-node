@@ -308,11 +308,19 @@ class _ExitProfilesScreenState extends State<ExitProfilesScreen> {
   Future<void> _acceptInvite(AppState state, ExitInvite invite) async {
     final l10n = state.l10n;
     await state.addExitProfile(invite.profile);
-    if (!state.snapshot.isConnected) {
+    if (invite.invite.isEmpty) {
+      // A link for a client the exit already allows: there is nothing to
+      // redeem. The node is authorised by its Yggdrasil address, so the data
+      // path works at once and the profile stays a plain SOCKS5 one until a
+      // token is added.
+      if (mounted) showSnack(context, l10n.t('exitSocksOnlySaved'));
+    } else if (!state.snapshot.isConnected) {
       if (mounted) showSnack(context, l10n.t('exitNeedTunnel'));
       return;
+    } else {
+      await _register(state, invite.profile, invite: invite.invite);
+      if (!mounted) return;
     }
-    await _register(state, invite.profile, invite: invite.invite);
     if (!mounted) return;
     // The first profile switches the exit on by itself, so the question would
     // only ask about something that already happened.
@@ -376,6 +384,13 @@ class _ExitProfilesScreenState extends State<ExitProfilesScreen> {
       await state.addExitProfile(result);
     }
     if (!mounted) return;
+    // A profile that was a plain SOCKS5 proxy becomes a full one when an
+    // invite is added: redeem it now, exactly like a freshly scanned code.
+    final invite = result.invite.trim();
+    if (invite.isNotEmpty && invite != profile.invite.trim()) {
+      await _register(state, result, invite: invite);
+      return;
+    }
     showSnack(context, state.l10n.t('exitSaved'));
   }
 
@@ -596,6 +611,14 @@ class _ExitRow extends StatelessWidget {
                 color: theme.colorScheme.primary,
               ),
             ),
+          if (profile.socksOnly)
+            Padding(
+              padding: const EdgeInsets.only(left: 8),
+              child: StatusPill(
+                label: l10n.t('exitSocksOnlyShort'),
+                color: theme.colorScheme.tertiary,
+              ),
+            ),
         ],
       ),
       subtitle: Column(
@@ -651,6 +674,33 @@ class _ExitRow extends StatelessWidget {
               ],
             ],
           ),
+          if (health?.ipv6Available == false) ...[
+            const SizedBox(height: 2),
+            Row(
+              children: [
+                const Icon(
+                  Icons.language_rounded,
+                  size: 12,
+                  color: Colors.orange,
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    l10n.t(
+                      health!.ipv6Broken
+                          ? 'exitIpv6BrokenShort'
+                          : 'exitIpv6NoneShort',
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: Colors.orange,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
       trailing: Row(
@@ -707,6 +757,8 @@ class _ExitProfileDialogState extends State<_ExitProfileDialog> {
   late final TextEditingController _api;
   late final TextEditingController _invite;
   late final TextEditingController _peer;
+  late final TextEditingController _token;
+  bool _showToken = false;
 
   @override
   void initState() {
@@ -718,6 +770,7 @@ class _ExitProfileDialogState extends State<_ExitProfileDialog> {
     _api = TextEditingController(text: '${initial?.apiPort ?? 1081}');
     _invite = TextEditingController(text: initial?.invite ?? '');
     _peer = TextEditingController(text: initial?.peer ?? '');
+    _token = TextEditingController(text: initial?.token ?? '');
   }
 
   @override
@@ -728,6 +781,7 @@ class _ExitProfileDialogState extends State<_ExitProfileDialog> {
     _api.dispose();
     _invite.dispose();
     _peer.dispose();
+    _token.dispose();
     super.dispose();
   }
 
@@ -746,6 +800,24 @@ class _ExitProfileDialogState extends State<_ExitProfileDialog> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                // The mode is derived from the fields below, so the banner
+                // explains what an empty invite and token mean instead of
+                // hiding them behind a switch the user has to find.
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    l10n.t('exitSocksOnlyFormHint'),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+                const SizedBox(height: 18),
                 TextFormField(
                   controller: _name,
                   textInputAction: TextInputAction.next,
@@ -814,6 +886,29 @@ class _ExitProfileDialogState extends State<_ExitProfileDialog> {
                 ),
                 const SizedBox(height: 18),
                 TextFormField(
+                  controller: _token,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  obscureText: !_showToken,
+                  textInputAction: TextInputAction.next,
+                  decoration: InputDecoration(
+                    labelText: l10n.t('exitToken'),
+                    helperText: l10n.t('exitTokenHint'),
+                    suffixIcon: IconButton(
+                      tooltip: l10n.t(
+                        _showToken ? 'exitTokenHide' : 'exitTokenShow',
+                      ),
+                      onPressed: () => setState(() => _showToken = !_showToken),
+                      icon: Icon(
+                        _showToken
+                            ? Icons.visibility_off_rounded
+                            : Icons.visibility_rounded,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                TextFormField(
                   controller: _peer,
                   autocorrect: false,
                   keyboardType: TextInputType.url,
@@ -873,6 +968,7 @@ class _ExitProfileDialogState extends State<_ExitProfileDialog> {
         apiPort: api,
         invite: _invite.text.trim(),
         peer: _peer.text.trim(),
+        token: _token.text.trim(),
       ),
     );
   }

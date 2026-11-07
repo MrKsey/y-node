@@ -18,6 +18,11 @@ class ExitInvite {
   /// Returns null for anything else, including an address outside 200::/7.
   /// The `peer` part is optional: an outbound-only server does not advertise
   /// one, and the exit is then reached through the rest of the mesh.
+  ///
+  /// The invite is optional too. A link without `i` is what an exit shows for a
+  /// client that is already allowed (for example after the profile was deleted
+  /// in the app): the profile is then a plain SOCKS5 proxy until a token or a
+  /// new invite is added.
   static ExitInvite? parse(String raw) {
     final value = raw.trim();
     if (value.isEmpty) return null;
@@ -29,7 +34,6 @@ class ExitInvite {
     final address = (query['a'] ?? '').trim();
     if (!isYggdrasilAddress(address)) return null;
     final invite = (query['i'] ?? '').trim();
-    if (invite.isEmpty) return null;
     final socks = int.tryParse(query['p'] ?? '') ?? 1080;
     var api = int.tryParse(query['api'] ?? '') ?? 1081;
     // api=0 means the server serves /v1/... on the SOCKS5 listener.

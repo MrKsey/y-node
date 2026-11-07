@@ -109,6 +109,15 @@ type profileHealth struct {
 	// The exit still knows the client but refuses every new connection until
 	// the block is lifted.
 	Suspended bool
+	// IPv6Available is what the exit reported about its own outbound IPv6:
+	// true when a global address answered, false when the host has no address
+	// or the provider does not route it. Nil means "not reported" (an exit
+	// from before 1.6.21, or a status that was answered without a token).
+	IPv6Available *bool
+	// IPv6State explains the flag: "ok", "none", "broken", "off" or
+	// "checking". It is only shown in the UI; the traffic decision uses
+	// IPv6Available.
+	IPv6State string
 	// udpUnsupportedUntil keeps an exit that answered "command not supported"
 	// out of the UDP failover list for a while, so every DNS query does not pay
 	// for another refused handshake.
@@ -195,6 +204,11 @@ type exitManager struct {
 	udpOut      atomic.Uint64
 	udpBytesIn  atomic.Uint64
 	udpBytesOut atomic.Uint64
+
+	// ipv6Path is carriesIPv6 in one word. The forwarding stack asks it for
+	// every IPv6 packet, so it must not take a lock: the health map is updated
+	// by the status poll, which is far less frequent than the packet path.
+	ipv6Path atomic.Bool
 }
 
 func newExitManager(raw string, inner *internalNet, direct *directDialer, log *goLogger) (*exitManager, error) {
@@ -213,6 +227,10 @@ func newExitManager(raw string, inner *internalNet, direct *directDialer, log *g
 	for _, profile := range cfg.Profiles {
 		m.health[profile.ID] = &profileHealth{State: exitStateUnknown}
 	}
+	// Until a status poll says otherwise, an exit is assumed to carry IPv6.
+	// That keeps exits from before 1.6.21 working: they never report the
+	// capability, and turning IPv6 off for them would break a working path.
+	m.ipv6Path.Store(cfg.Enabled && len(cfg.Profiles) > 0)
 	return m, nil
 }
 
@@ -328,8 +346,50 @@ func (m *exitManager) markAuth(id string, authenticated, required bool) {
 // exit node connects to them from its own host, so this does not depend on the
 // phone having an IPv6 uplink. Without an exit the tunnel has no IPv6 path and
 // the forwarding stack resets or drops such packets.
+//
+// The answer follows the last status poll: an exit whose host has no IPv6 or
+// whose provider does not route it reports ipv6=false, and the tunnel then
+// stops sending IPv6 traffic that could only time out. A pre-1.6.21 exit does
+// not report the capability and keeps the old behaviour.
 func (m *exitManager) carriesIPv6() bool {
-	return m.enabled()
+	return m.ipv6Path.Load()
+}
+
+// markCapabilities stores what the exit said about itself. Only the IPv6 part
+// matters here: UDP support is discovered on the data path, where a refusal is
+// immediate and specific.
+func (m *exitManager) markCapabilities(id string, caps *exitAPICapabilities) {
+	if caps == nil {
+		return
+	}
+	m.mu.Lock()
+	health, ok := m.health[id]
+	if !ok {
+		health = &profileHealth{}
+		m.health[id] = health
+	}
+	available := caps.IPv6
+	health.IPv6Available = &available
+	health.IPv6State = strings.TrimSpace(caps.IPv6State)
+	allowed := m.ipv6PathLocked()
+	m.mu.Unlock()
+	m.ipv6Path.Store(allowed)
+}
+
+// ipv6PathLocked answers whether any profile might still carry IPv6. A profile
+// whose capability is unknown counts as usable: the tunnel must not stop IPv6
+// because one exit is old or was not polled yet. The caller holds m.mu.
+func (m *exitManager) ipv6PathLocked() bool {
+	if !m.cfg.Enabled || len(m.cfg.Profiles) == 0 {
+		return false
+	}
+	for _, profile := range m.cfg.Profiles {
+		health := m.health[profile.ID]
+		if health == nil || health.IPv6Available == nil || *health.IPv6Available {
+			return true
+		}
+	}
+	return false
 }
 
 // ordered returns the profiles in the order they should be tried: the active
@@ -1088,6 +1148,13 @@ type exitProfileStatus struct {
 	// Suspended is the operator block from the exit web interface. It keeps the
 	// profile online, because the API answers; only new connections are refused.
 	Suspended bool `json:"suspended,omitempty"`
+
+	// IPv6Available is the exit's own outbound IPv6 state, as reported by the
+	// exit. Nil when the server is too old to send it or answered without a
+	// token; the card then shows no IPv6 line instead of guessing.
+	IPv6Available *bool `json:"ipv6Available,omitempty"`
+	// IPv6State is the short reason: ok, none, broken, off or checking.
+	IPv6State string `json:"ipv6State,omitempty"`
 }
 
 // exitQuota mirrors the quota block of the exit status API. Limits are 0 when
@@ -1187,6 +1254,8 @@ func (m *exitManager) statusBase() exitStatus {
 			item.MaxUDPAssociations = health.MaxUDPAssociations
 			item.Quota = health.Quota
 			item.Suspended = health.Suspended
+			item.IPv6Available = health.IPv6Available
+			item.IPv6State = health.IPv6State
 		}
 		// Publish a token learned at run time, unless the profile already
 		// carries the same one: the app saves the difference.
@@ -1248,6 +1317,19 @@ type exitAPIStatus struct {
 	UDPAssociations    int        `json:"udpAssociations"`
 	MaxUDPAssociations int        `json:"maxUdpAssociations"`
 	Quota              *exitQuota `json:"quota,omitempty"`
+
+	// Capabilities is what the exit can do. It is sent only to an
+	// authenticated caller, so nil means "not reported", not "nothing works".
+	Capabilities *exitAPICapabilities `json:"capabilities,omitempty"`
+}
+
+// exitAPICapabilities mirrors the capabilities block of the exit status API.
+type exitAPICapabilities struct {
+	UDP          bool   `json:"udp"`
+	IPv6         bool   `json:"ipv6"`
+	Registration bool   `json:"registration"`
+	Token        bool   `json:"token"`
+	IPv6State    string `json:"ipv6State,omitempty"`
 }
 
 // apiCall performs one HTTP request against the API of an exit through
@@ -1428,6 +1510,7 @@ func (m *exitManager) checkProfile(ctx context.Context, profile ExitProfile) err
 		m.markLoad(profile.ID, payload.Connections, payload.Refused, payload.QuotaRefused,
 			payload.LimitRefused, payload.MaxConns, payload.UDPAssociations, payload.MaxUDPAssociations,
 			payload.Suspended, payload.Quota)
+		m.markCapabilities(profile.ID, payload.Capabilities)
 		// Without a token the exit publishes nothing about allowlist, so a
 		// missing field is "unknown", not "denied".
 		if payload.Allowlisted != nil && !*payload.Allowlisted && !payload.Open {

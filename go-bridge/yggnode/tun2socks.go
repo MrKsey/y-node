@@ -67,10 +67,11 @@ type tun2socks struct {
 	dns    *dnsRouter
 	log    *goLogger
 
-	// ipv6 reports whether global IPv6 destinations can leave through the
-	// upstream. It is only true when an exit node carries them: without one the
-	// phone may have an IPv6 uplink of its own, but the tunnel does not use it.
-	ipv6 bool
+	// carrier is the upstream when it can carry global IPv6, nil otherwise.
+	// The question is asked for every IPv6 packet instead of once at start:
+	// the exit may report that its provider stopped routing IPv6, and the
+	// tunnel must stop sending such packets without a restart.
+	carrier ipv6Carrier
 
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -169,7 +170,7 @@ func newTun2Socks(
 		done:   make(chan struct{}),
 	}
 	if carrier, ok := dialer.(ipv6Carrier); ok {
-		t.ipv6 = carrier.carriesIPv6()
+		t.carrier = carrier
 	}
 
 	tcpForwarder := tcp.NewForwarder(s, 0, tun2socksQueue, func(r *tcp.ForwarderRequest) {
@@ -382,7 +383,7 @@ func (t *tun2socks) canForward(addr tcpip.Address) bool {
 	if addr.Len() == 4 {
 		return true
 	}
-	if !t.ipv6 {
+	if t.carrier == nil || !t.carrier.carriesIPv6() {
 		return false
 	}
 	return isGlobalIPv6(tcpipAddrToIP(addr))

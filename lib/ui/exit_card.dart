@@ -40,6 +40,19 @@ class ExitNodeCard extends StatelessWidget {
     // tunnel they would show stale counters and buttons that cannot work, so
     // the card keeps only the exit switch and the profile controls.
     final live = state.snapshot.isConnected;
+    // The exit reports whether its own host can reach IPv6. A broken provider
+    // is the case that looks healthy on the server but drops every packet, so
+    // the tunnel stops sending IPv6 traffic and the card says why.
+    final ipv6Broken = active?.ipv6Broken ?? false;
+    final ipv6Missing = active?.ipv6Missing ?? false;
+    final ipv6Hint = ipv6Broken
+        ? l10n.t('exitIpv6BrokenHint')
+        : ipv6Missing
+        ? l10n.t('exitIpv6NoneHint')
+        : l10n.t('exitIpv6Hint');
+    final ipv6Color = ipv6Broken || ipv6Missing
+        ? Colors.orange
+        : theme.colorScheme.primary;
     // The profile's pinned peer is the direct link to the exit node. When that
     // link is up the route to the exit never leaves the two nodes.
     final direct =
@@ -136,6 +149,42 @@ class ExitNodeCard extends StatelessWidget {
               style: theme.textTheme.bodySmall,
             ),
           ),
+        if (settings.exitActive &&
+            activeProfile != null &&
+            activeProfile.socksOnly)
+          ListTile(
+            dense: true,
+            contentPadding: const EdgeInsets.fromLTRB(16, 0, 8, 4),
+            leading: Icon(
+              Icons.vpn_key_off_rounded,
+              size: 20,
+              color: theme.colorScheme.tertiary,
+            ),
+            title: Row(
+              children: [
+                Text(
+                  l10n.t('exitSocksOnly'),
+                  style: theme.textTheme.bodyMedium,
+                ),
+                const SizedBox(width: 8),
+                StatusPill(
+                  label: l10n.t('exitSocksOnlyShort'),
+                  color: theme.colorScheme.tertiary,
+                ),
+              ],
+            ),
+            subtitle: Text(
+              activeProfile.needsPeer
+                  ? l10n.t('exitSocksOnlyPeerHint')
+                  : l10n.t('exitSocksOnlyHint'),
+              style: theme.textTheme.bodySmall,
+            ),
+            trailing: IconButton(
+              tooltip: l10n.t('exitManage'),
+              onPressed: () => _open(context),
+              icon: const Icon(Icons.tune_rounded, size: 20),
+            ),
+          ),
         if (live && settings.exitActive && quota != null && !quota.isUnlimited)
           _QuotaRow(quota: quota, l10n: l10n),
         if (live && settings.exitActive && status.udp.enabled)
@@ -149,19 +198,25 @@ class ExitNodeCard extends StatelessWidget {
           ListTile(
             dense: true,
             contentPadding: const EdgeInsets.fromLTRB(16, 0, 8, 4),
-            leading: Icon(
-              Icons.language_rounded,
-              size: 20,
-              color: theme.colorScheme.primary,
+            leading: Icon(Icons.language_rounded, size: 20, color: ipv6Color),
+            title: Row(
+              children: [
+                Text(
+                  l10n.t('exitIpv6Title'),
+                  style: theme.textTheme.bodyMedium,
+                ),
+                if (ipv6Broken || ipv6Missing) ...[
+                  const SizedBox(width: 8),
+                  StatusPill(
+                    label: l10n.t(
+                      ipv6Broken ? 'exitIpv6BrokenShort' : 'exitIpv6NoneShort',
+                    ),
+                    color: Colors.orange,
+                  ),
+                ],
+              ],
             ),
-            title: Text(
-              l10n.t('exitIpv6Title'),
-              style: theme.textTheme.bodyMedium,
-            ),
-            subtitle: Text(
-              l10n.t('exitIpv6Hint'),
-              style: theme.textTheme.bodySmall,
-            ),
+            subtitle: Text(ipv6Hint, style: theme.textTheme.bodySmall),
             trailing: IconButton(
               tooltip: l10n.t('exitIpv6Test'),
               onPressed: state.testingIpv6 ? null : () => _testIpv6(context),
