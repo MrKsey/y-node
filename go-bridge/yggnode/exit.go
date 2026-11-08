@@ -1200,7 +1200,16 @@ func (m *exitManager) udpStatus() exitUDPStatus {
 	case association != nil:
 		out.State = "online"
 		out.ProfileID = association.profile.ID
+		// The association remembers the profile it was created with, so a
+		// rename in the app would keep the old name until the relay reconnects.
+		// The current configuration is the source of truth for the name.
 		out.ProfileName = association.profile.Name
+		for _, profile := range cfg.Profiles {
+			if profile.ID == out.ProfileID && profile.Name != "" {
+				out.ProfileName = profile.Name
+				break
+			}
+		}
 	case errText != "":
 		out.State = "error"
 		out.Error = errText

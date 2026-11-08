@@ -980,7 +980,7 @@ class AppState extends ChangeNotifier {
   /// renamed profile would keep its old name until the tunnel reconnects. The
   /// stored list is the source of truth for the UI.
   ExitStatus _namedExitStatus(ExitStatus status) {
-    if (status.profiles.isEmpty || settings.exitProfiles.isEmpty) return status;
+    if (settings.exitProfiles.isEmpty) return status;
     final names = {
       for (final profile in settings.exitProfiles) profile.id: profile.name,
     };
@@ -995,6 +995,15 @@ class AppState extends ChangeNotifier {
         profiles.add(profile);
       }
     }
+    // The UDP association remembers the profile it was created with, so a
+    // rename would leave its own name stale even when the profile list above
+    // is already correct.
+    var udp = status.udp;
+    final udpName = names[udp.profileId];
+    if (udpName != null && udpName.isNotEmpty && udpName != udp.profileName) {
+      udp = udp.copyWith(profileName: udpName);
+      changed = true;
+    }
     if (!changed) return status;
     return ExitStatus(
       enabled: status.enabled,
@@ -1002,9 +1011,21 @@ class AppState extends ChangeNotifier {
       activeId: status.activeId,
       fallbackDirect: status.fallbackDirect,
       profiles: profiles,
-      udp: status.udp,
+      udp: udp,
       updatedAt: status.updatedAt,
     );
+  }
+
+  /// The name to show for a profile reported by the bridge. The self-checks
+  /// carry the name the bridge knew when the check ran; a profile renamed in
+  /// the app keeps its id, so the stored list wins.
+  String exitProfileName(String profileId, String fallback) {
+    for (final profile in settings.exitProfiles) {
+      if (profile.id == profileId && profile.name.isNotEmpty) {
+        return profile.name;
+      }
+    }
+    return fallback;
   }
 
   /// Moves API tokens learned by the bridge into the profiles. The bridge gets

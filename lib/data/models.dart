@@ -607,6 +607,19 @@ class ExitUdpStatus {
 
   bool get isOnline => state == 'online';
 
+  ExitUdpStatus copyWith({String? profileId, String? profileName}) =>
+      ExitUdpStatus(
+        enabled: enabled,
+        state: state,
+        profileId: profileId ?? this.profileId,
+        profileName: profileName ?? this.profileName,
+        datagramsIn: datagramsIn,
+        datagramsOut: datagramsOut,
+        bytesIn: bytesIn,
+        bytesOut: bytesOut,
+        error: error,
+      );
+
   factory ExitUdpStatus.fromJson(Map<String, dynamic> json) => ExitUdpStatus(
     enabled: (json['enabled'] as bool?) ?? false,
     state: (json['state'] as String?) ?? 'off',
@@ -655,6 +668,7 @@ class UdpProbeResult {
   const UdpProbeResult({
     this.ok = false,
     this.state = 'error',
+    this.profileId = '',
     this.profile = '',
     this.udp = const UdpProbeStage(),
     this.quic = const UdpProbeStage(),
@@ -668,6 +682,7 @@ class UdpProbeResult {
 
   /// `ok`, `off`, `disabled`, `udp_failed`, `quic_failed` or `error`.
   final String state;
+  final String profileId;
   final String profile;
   final UdpProbeStage udp;
   final UdpProbeStage quic;
@@ -679,6 +694,7 @@ class UdpProbeResult {
   factory UdpProbeResult.fromJson(Map<String, dynamic> json) => UdpProbeResult(
     ok: (json['ok'] as bool?) ?? false,
     state: (json['state'] as String?) ?? 'error',
+    profileId: (json['profileId'] as String?) ?? '',
     profile: (json['profile'] as String?) ?? '',
     udp: json['udp'] is Map<String, dynamic>
         ? UdpProbeStage.fromJson(json['udp'] as Map<String, dynamic>)
@@ -739,6 +755,7 @@ class Ipv6ProbeResult {
   const Ipv6ProbeResult({
     this.ok = false,
     this.state = 'error',
+    this.profileId = '',
     this.profile = '',
     this.tcp = const Ipv6ProbeStage(),
     this.udp = const Ipv6ProbeStage(),
@@ -750,6 +767,7 @@ class Ipv6ProbeResult {
 
   /// `ok`, `off`, `tcp_failed` or `udp_failed`.
   final String state;
+  final String profileId;
   final String profile;
   final Ipv6ProbeStage tcp;
   final Ipv6ProbeStage udp;
@@ -760,6 +778,7 @@ class Ipv6ProbeResult {
       Ipv6ProbeResult(
         ok: (json['ok'] as bool?) ?? false,
         state: (json['state'] as String?) ?? 'error',
+        profileId: (json['profileId'] as String?) ?? '',
         profile: (json['profile'] as String?) ?? '',
         tcp: json['tcp'] is Map<String, dynamic>
             ? Ipv6ProbeStage.fromJson(json['tcp'] as Map<String, dynamic>)

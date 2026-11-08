@@ -55,7 +55,10 @@ type ipv6ProbeResult struct {
 	// State is `ok`, `off`, `tcp_failed` or `udp_failed`.
 	State string `json:"state"`
 	// Profile is the exit that carried the TCP stage, when one answered.
-	Profile    string         `json:"profile,omitempty"`
+	Profile string `json:"profile,omitempty"`
+	// ProfileID survives a rename in the app, so the UI can show the current
+	// name instead of the one the bridge received with the last configuration.
+	ProfileID  string         `json:"profileId,omitempty"`
 	TCP        ipv6ProbeStage `json:"tcp"`
 	UDP        ipv6ProbeStage `json:"udp"`
 	DurationMs int64          `json:"durationMs"`
@@ -96,7 +99,8 @@ func (n *Node) TestExitIPv6(timeoutMs int) string {
 	result := ipv6ProbeResult{State: "ok"}
 	stage, profile, err := manager.probeIPv6TCP(ctx)
 	result.TCP = stage
-	result.Profile = profile
+	result.Profile = profile.Name
+	result.ProfileID = profile.ID
 	if err != nil {
 		result.TCP.Error = describeIPv6Error(err)
 		result.State = "tcp_failed"
@@ -128,7 +132,10 @@ func (n *Node) TestExitIPv6(timeoutMs int) string {
 		}
 	}
 	if result.Profile == "" {
-		result.Profile = manager.udpStatus().ProfileName
+		if status := manager.udpStatus(); status.ProfileName != "" {
+			result.Profile = status.ProfileName
+			result.ProfileID = status.ProfileID
+		}
 	}
 	result.OK = result.State == "ok"
 	result.DurationMs = time.Since(started).Milliseconds()
@@ -147,7 +154,7 @@ func encodeIPv6Probe(result ipv6ProbeResult) string {
 // exit profile and reads the trace page. Profiles are tried in order, but a
 // failure never falls back to a direct connection: that would hide a broken
 // exit and could pass on a phone with an IPv6 uplink of its own.
-func (m *exitManager) probeIPv6TCP(ctx context.Context) (ipv6ProbeStage, string, error) {
+func (m *exitManager) probeIPv6TCP(ctx context.Context) (ipv6ProbeStage, ExitProfile, error) {
 	ip := net.ParseIP(ipv6ProbeAddress)
 	stage := ipv6ProbeStage{Target: net.JoinHostPort(ipv6ProbeAddress, strconv.Itoa(ipv6ProbeTLSPort))}
 	var lastErr error
@@ -183,12 +190,12 @@ func (m *exitManager) probeIPv6TCP(ctx context.Context) (ipv6ProbeStage, string,
 		stage.OK = true
 		stage.Latency = float64(time.Since(started).Microseconds()) / 1000.0
 		stage.Address = address
-		return stage, profile.Name, nil
+		return stage, profile, nil
 	}
 	if lastErr == nil {
 		lastErr = errors.New("no exit node is available")
 	}
-	return stage, "", lastErr
+	return stage, ExitProfile{}, lastErr
 }
 
 // probeIPv6UDP asks the IPv6 resolver for an AAAA record through the UDP relay

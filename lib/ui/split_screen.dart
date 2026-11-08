@@ -93,6 +93,13 @@ class _SplitScreenState extends State<SplitScreen> {
     super.dispose();
   }
 
+  /// Clears the search box and the filter together: the suffix icon is shown
+  /// only while the query is not empty, so the list returns at once.
+  void _clearSearch() {
+    _search.clear();
+    setState(() => _query = '');
+  }
+
   /// The apps to show, filtered and ordered: selected ones first, then by name.
   /// The result is cached until one of the inputs changes, so a status tick
   /// from the tunnel does not re-sort the whole package list.
@@ -294,6 +301,13 @@ class _SplitScreenState extends State<SplitScreen> {
                     decoration: InputDecoration(
                       hintText: l10n.t('splitSearch'),
                       prefixIcon: const Icon(Icons.search_rounded),
+                      suffixIcon: _query.isEmpty
+                          ? null
+                          : IconButton(
+                              tooltip: l10n.t('clear'),
+                              onPressed: _clearSearch,
+                              icon: const Icon(Icons.close_rounded),
+                            ),
                       isDense: true,
                     ),
                   ),
@@ -330,6 +344,11 @@ class _SplitScreenState extends State<SplitScreen> {
                       final app = apps[index];
                       final checked = selected.contains(app.packageName);
                       return CheckboxListTile(
+                        // The list is rebuilt when the filter changes, and
+                        // without a key the builder reuses the State of the
+                        // row that used to sit at this index: the icon of a
+                        // hidden app then stayed on a different package.
+                        key: ValueKey(app.packageName),
                         value: checked,
                         onChanged: settings.splitEnabled
                             ? (value) => _toggle(state, app, value == true)
@@ -549,6 +568,21 @@ class _AppIconState extends State<_AppIcon> {
         return bytes;
       });
     }
+  }
+
+  /// A rebuilt list can hand this State another package when the row is
+  /// reused. Starting a new future is what keeps the icon and the name of the
+  /// row in step even without a key on the parent.
+  @override
+  void didUpdateWidget(covariant _AppIcon oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.packageName == widget.packageName) return;
+    _future = _AppIcon._cache.containsKey(widget.packageName)
+        ? null
+        : Native.appIcon(widget.packageName).then((bytes) {
+            _AppIcon._cache[widget.packageName] = bytes;
+            return bytes;
+          });
   }
 
   @override

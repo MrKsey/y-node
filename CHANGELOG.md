@@ -4,6 +4,18 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.4.7] — 2026-11-08
+
+### Added
+
+- The built-in DNS list includes the tilde.horse resolver at `202:cbff:6f7f:fa95:c6e9:3768:a96e:d1c8`, described as an ALFIS/meshname resolver.
+- The **Search apps** field on the **Apps** tab has a clear button that appears while a query is typed and resets the filter.
+
+### Fixed
+
+- A renamed exit profile is shown under its new name in the **UDP relay** line and in both self-check dialogs, instead of the name captured when the relay association or the check started.
+- App icons in the split-tunnel list stay with their own package after a search: a filtered row no longer shows the icon of a hidden app.
+
 ## [1.4.6] — 2026-11-08
 
 ### Added

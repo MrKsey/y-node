@@ -210,7 +210,8 @@ void main() {
       '{"enabled":true,"state":"online","activeId":"202::1:1080",'
       '"profiles":[{"id":"202::1:1080","name":"a","state":"online",'
       '"latencyMs":12.5}],'
-      '"udp":{"enabled":true,"state":"online","profileName":"a",'
+      '"udp":{"enabled":true,"state":"online","profileId":"202::1:1080",'
+      '"profileName":"a",'
       '"datagramsIn":3,"datagramsOut":2,"bytesIn":120,"bytesOut":80}}',
     );
     expect(status, isNotNull);
@@ -218,6 +219,7 @@ void main() {
     expect(status.active?.latencyMs, 12.5);
     expect(status.udp.enabled, isTrue);
     expect(status.udp.isOnline, isTrue);
+    expect(status.udp.profileId, '202::1:1080');
     expect(status.udp.datagramsIn, 3);
     expect(status.udp.bytesOut, 80);
   });
@@ -359,6 +361,7 @@ void main() {
   test('the UDP check result is read from the bridge JSON', () {
     final result = UdpProbeResult.tryParse(
       '{"ok":true,"state":"ok","profile":"Fin-exit",'
+      '"profileId":"202::1:1080",'
       '"udp":{"ok":true,"latencyMs":41.5,"target":"cloudflare.com",'
       '"server":"1.1.1.1:53"},'
       '"quic":{"ok":true,"latencyMs":118.2,'
@@ -368,6 +371,7 @@ void main() {
     expect(result, isNotNull);
     expect(result!.ok, isTrue);
     expect(result.profile, 'Fin-exit');
+    expect(result.profileId, '202::1:1080');
     expect(result.udp.ok, isTrue);
     expect(result.udp.latencyMs, 41.5);
     expect(result.quic.version, '1');
@@ -410,6 +414,7 @@ void main() {
   test('the IPv6 check result is read from the bridge JSON', () {
     final result = Ipv6ProbeResult.tryParse(
       '{"ok":true,"state":"ok","profile":"Fin-exit",'
+      '"profileId":"202::1:1080",'
       '"tcp":{"ok":true,"latencyMs":92.4,'
       '"target":"[2606:4700:4700::1111]:443",'
       '"address":"2a01:ecc0:5000:329::2"},'
@@ -421,6 +426,7 @@ void main() {
     expect(result!.ok, isTrue);
     expect(result.state, 'ok');
     expect(result.profile, 'Fin-exit');
+    expect(result.profileId, '202::1:1080');
     expect(result.tcp.ok, isTrue);
     expect(result.tcp.address, '2a01:ecc0:5000:329::2');
     expect(result.udp.ok, isTrue);

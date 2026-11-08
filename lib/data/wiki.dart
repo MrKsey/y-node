@@ -167,6 +167,11 @@ class WikiService {
       admin: 'evasil',
       note: 'ALFIS, Clearnet, no filters',
     ),
+    DnsPreset(
+      address: '202:cbff:6f7f:fa95:c6e9:3768:a96e:d1c8',
+      location: 'tilde.horse',
+      note: 'ALFIS/meshname DNS resolver',
+    ),
   ];
 
   // ------------------------------------------------------------------

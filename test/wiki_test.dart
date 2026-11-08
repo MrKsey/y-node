@@ -91,7 +91,7 @@ void main() {
     final file = File('assets/data/wiki_dns.txt');
     expect(file.existsSync(), isTrue);
     final presets = WikiService.parseDns(file.readAsStringSync());
-    expect(presets.length, greaterThanOrEqualTo(5));
+    expect(presets.length, greaterThanOrEqualTo(6));
     expect(
       presets.map((preset) => preset.address),
       containsAll([
@@ -100,7 +100,20 @@ void main() {
         '308:62:45:62::',
         '308:c8:48:45::',
         '215:1e33:6417:d636:c807:6985:4f4e:fda0',
+        '202:cbff:6f7f:fa95:c6e9:3768:a96e:d1c8',
       ]),
+    );
+    final tilde = presets.firstWhere(
+      (preset) => preset.address == '202:cbff:6f7f:fa95:c6e9:3768:a96e:d1c8',
+    );
+    expect(tilde.location, 'tilde.horse');
+    expect(tilde.note, contains('ALFIS'));
+  });
+
+  test('the built-in DNS list knows the tilde.horse resolver', () {
+    expect(
+      WikiService.defaultDnsPresets.map((preset) => preset.address),
+      contains('202:cbff:6f7f:fa95:c6e9:3768:a96e:d1c8'),
     );
   });
 

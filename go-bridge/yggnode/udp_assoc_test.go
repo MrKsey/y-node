@@ -344,6 +344,39 @@ func TestExitStatusReportsUDP(t *testing.T) {
 	}
 }
 
+// The association keeps the profile it was created with. A rename in the app
+// changes only the configuration, so the status must read the current name
+// from there instead of the copy inside the association.
+func TestExitStatusUsesTheRenamedProfile(t *testing.T) {
+	on := true
+	manager := &exitManager{
+		cfg: exitConfig{
+			Enabled: true,
+			Profiles: []ExitProfile{{
+				ID: "e", Name: "New name", Address: "200::1", SocksPort: 1080,
+			}},
+			UDP: &on,
+		},
+		log:    &goLogger{},
+		health: map[string]*profileHealth{"e": {State: exitStateOnline}},
+	}
+	manager.udp = &socksUDPAssociation{
+		manager: manager,
+		profile: ExitProfile{ID: "e", Name: "Old name", Address: "200::1", SocksPort: 1080},
+		log:     &goLogger{},
+	}
+	status := manager.status()
+	if status.UDP.State != "online" {
+		t.Fatalf("udp state = %q", status.UDP.State)
+	}
+	if status.UDP.ProfileID != "e" {
+		t.Fatalf("profile id = %q", status.UDP.ProfileID)
+	}
+	if status.UDP.ProfileName != "New name" {
+		t.Fatalf("profile name = %q, want the current one", status.UDP.ProfileName)
+	}
+}
+
 func TestQueryDNSDatagramSkipsForeignAnswers(t *testing.T) {
 	client, server := net.Pipe()
 	defer client.Close()

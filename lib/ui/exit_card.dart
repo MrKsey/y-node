@@ -288,7 +288,11 @@ class ExitNodeCard extends StatelessWidget {
     }
     await showDialog<void>(
       context: context,
-      builder: (_) => _Ipv6ProbeDialog(result: result, l10n: l10n),
+      builder: (_) => _Ipv6ProbeDialog(
+        result: result,
+        profile: state.exitProfileName(result.profileId, result.profile),
+        l10n: l10n,
+      ),
     );
   }
 }
@@ -534,7 +538,11 @@ class _UdpRow extends StatelessWidget {
     }
     await showDialog<void>(
       context: context,
-      builder: (_) => _UdpProbeDialog(result: result, l10n: l10n),
+      builder: (_) => _UdpProbeDialog(
+        result: result,
+        profile: state.exitProfileName(result.profileId, result.profile),
+        l10n: l10n,
+      ),
     );
   }
 }
@@ -542,9 +550,14 @@ class _UdpRow extends StatelessWidget {
 /// The result of the UDP relay self-check: the DNS query and the QUIC
 /// handshake, each with its own error when it failed.
 class _UdpProbeDialog extends StatelessWidget {
-  const _UdpProbeDialog({required this.result, required this.l10n});
+  const _UdpProbeDialog({
+    required this.result,
+    required this.profile,
+    required this.l10n,
+  });
 
   final UdpProbeResult result;
+  final String profile;
   final L10n l10n;
 
   @override
@@ -584,9 +597,9 @@ class _UdpProbeDialog extends StatelessWidget {
             ]),
             style: theme.textTheme.bodySmall,
           ),
-          if (result.profile.isNotEmpty)
+          if (profile.isNotEmpty)
             Text(
-              l10n.tf('exitUdpTestThrough', [result.profile]),
+              l10n.tf('exitUdpTestThrough', [profile]),
               style: theme.textTheme.bodySmall,
             ),
         ],
@@ -604,9 +617,14 @@ class _UdpProbeDialog extends StatelessWidget {
 /// The result of the IPv6 self-check: TCP over IPv6 and DNS over IPv6, each
 /// with its own error when it failed.
 class _Ipv6ProbeDialog extends StatelessWidget {
-  const _Ipv6ProbeDialog({required this.result, required this.l10n});
+  const _Ipv6ProbeDialog({
+    required this.result,
+    required this.profile,
+    required this.l10n,
+  });
 
   final Ipv6ProbeResult result;
+  final String profile;
   final L10n l10n;
 
   @override
@@ -644,9 +662,9 @@ class _Ipv6ProbeDialog extends StatelessWidget {
               style: theme.textTheme.bodySmall,
             ),
           ],
-          if (result.profile.isNotEmpty)
+          if (profile.isNotEmpty)
             Text(
-              l10n.tf('exitIpv6TestThrough', [result.profile]),
+              l10n.tf('exitIpv6TestThrough', [profile]),
               style: theme.textTheme.bodySmall,
             ),
         ],

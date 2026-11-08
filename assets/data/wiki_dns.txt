@@ -34,6 +34,7 @@ ping rutor.ygg
 | <del>302:7991::53</del> 308:62:45:62::          | Амстердам, Нидерланды      |  [[user:rev|Revertron]]     | [[yggdrasil:dns:alfis|ALFIS]], OpenNIC, AdGuard, Clearnet |
 | <del>301:1088::53</del> 308:c8:48:45::          | Буффало, США      |  [[user:rev|Revertron]]     | [[yggdrasil:dns:alfis|ALFIS]], OpenNIC, AdGuard, Clearnet |
 |215:1e33:6417:d636:c807:6985:4f4e:fda0|Украина|  [[user:ufm]]  | [[yggdrasil:dns:alfis|ALFIS]], ClearNet|
+|202:cbff:6f7f:fa95:c6e9:3768:a96e:d1c8|tilde.horse|  |ALFIS/meshname DNS resolver|
 
 ====== Дополнительно ======
 

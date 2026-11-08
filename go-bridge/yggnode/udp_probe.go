@@ -47,9 +47,12 @@ type udpProbeResult struct {
 	OK    bool   `json:"ok"`
 	State string `json:"state"`
 	// Profile is the exit that carried the probe, when one answered.
-	Profile string        `json:"profile,omitempty"`
-	UDP     udpProbeStage `json:"udp"`
-	QUIC    udpProbeStage `json:"quic"`
+	Profile string `json:"profile,omitempty"`
+	// ProfileID stays the same when the profile is renamed in the app, so the
+	// UI can show the current name instead of the one the association kept.
+	ProfileID string        `json:"profileId,omitempty"`
+	UDP       udpProbeStage `json:"udp"`
+	QUIC      udpProbeStage `json:"quic"`
 	// DatagramsIn/Out are the traffic deltas of the check itself: they prove
 	// the datagrams really went through the exit and not around it.
 	DatagramsIn  uint64 `json:"datagramsIn"`
@@ -111,6 +114,7 @@ func (n *Node) TestExitUDP(timeoutMs int) string {
 	result.DurationMs = time.Since(started).Milliseconds()
 	if status := manager.udpStatus(); status.ProfileName != "" {
 		result.Profile = status.ProfileName
+		result.ProfileID = status.ProfileID
 	}
 
 	switch {

@@ -147,4 +147,20 @@ void main() {
     expect(profile.invite, 'invite-2');
     expect(profile.token, 'api-token');
   });
+
+  // The UDP association and the self-checks carry the name the bridge knew at
+  // the moment they were created. A rename must still show the current name,
+  // because the profile id never changes.
+  test('a renamed exit profile is reported under its new name', () {
+    final state = AppState();
+    state.settings = state.settings.copyWith(
+      exitProfiles: const [
+        ExitProfile(id: '202::1:1080', name: 'Home exit', address: '202::1'),
+      ],
+    );
+
+    expect(state.exitProfileName('202::1:1080', 'old name'), 'Home exit');
+    // An unknown id keeps what the bridge reported.
+    expect(state.exitProfileName('300::9:1080', 'old name'), 'old name');
+  });
 }
