@@ -13,6 +13,7 @@ class DnsPreset {
     this.admin = '',
     this.note = '',
     this.deprecated = false,
+    this.fromExit = false,
   });
 
   final String address;
@@ -20,6 +21,9 @@ class DnsPreset {
   final String admin;
   final String note;
   final bool deprecated;
+
+  /// True when the server is published by an exit node instead of the wiki.
+  final bool fromExit;
 
   String get label => location.isEmpty ? address : location;
 }

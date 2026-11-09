@@ -278,3 +278,35 @@ func fakeSocksServer(conn net.Conn, code byte) {
 	}
 	_, _ = conn.Write([]byte{5, code, 0, 1, 0, 0, 0, 0, 0, 0})
 }
+
+func TestDNSEndpointKeepsAnExplicitPort(t *testing.T) {
+	cases := map[string]string{
+		"202::1":        "[202::1]:53",
+		"1.1.1.1":       "1.1.1.1:53",
+		"[202::1]:5353": "[202::1]:5353",
+		"1.1.1.1:5353":  "1.1.1.1:5353",
+	}
+	for input, want := range cases {
+		if got := dnsEndpoint(input); got != want {
+			t.Errorf("dnsEndpoint(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestCleanServersKeepsANonDefaultPort(t *testing.T) {
+	got := cleanServers([]string{
+		"202::1",
+		"[202::1]:5353",
+		"not-a-server",
+		"1.1.1.1:0",
+	})
+	want := []string{"202::1", "[202::1]:5353"}
+	if len(got) != len(want) {
+		t.Fatalf("cleanServers = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("cleanServers = %v, want %v", got, want)
+		}
+	}
+}

@@ -209,6 +209,27 @@ class _ExitProfilesScreenState extends State<ExitProfilesScreen> {
                 subtitle: Text(l10n.t('exitLocalDnsHint')),
                 secondary: const Icon(Icons.lan_outlined),
               ),
+              // The resolver of the exit node is a Yggdrasil DNS server the
+              // server publishes for its clients. The switch puts it into the
+              // DNS list; the list then locks the entry instead of offering a
+              // remove button, because this switch owns it.
+              SwitchListTile(
+                value: state.exitDnsInUse,
+                onChanged: state.exitDnsProfile == null
+                    ? null
+                    : state.setExitDns,
+                title: Text(l10n.t('exitDnsNode')),
+                subtitle: Text(
+                  state.exitDnsProfile == null
+                      ? l10n.t('exitDnsNodeUnavailable')
+                      : l10n.tf('exitDnsNodeHint', [
+                          state.exitDnsProfile!.dnsServer,
+                        ]),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                secondary: const Icon(Icons.dns_rounded),
+              ),
               SwitchListTile(
                 value: settings.exitUdp,
                 onChanged: (value) => _setUdp(state, value),
@@ -653,6 +674,29 @@ class _ExitRow extends StatelessWidget {
               ],
             ),
           ],
+          if (profile.hasDns) ...[
+            const SizedBox(height: 2),
+            Row(
+              children: [
+                Icon(
+                  Icons.dns_rounded,
+                  size: 12,
+                  color: theme.colorScheme.primary,
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    l10n.tf('exitDnsAdvertised', [profile.dnsServer]),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 2),
           Row(
             children: [
@@ -969,6 +1013,10 @@ class _ExitProfileDialogState extends State<_ExitProfileDialog> {
         invite: _invite.text.trim(),
         peer: _peer.text.trim(),
         token: _token.text.trim(),
+        // The resolver comes from the invite and has no field of its own, so
+        // an edit has to carry it over instead of dropping it.
+        dnsAddress: widget.initial?.dnsAddress ?? '',
+        dnsPort: widget.initial?.dnsPort ?? 53,
       ),
     );
   }

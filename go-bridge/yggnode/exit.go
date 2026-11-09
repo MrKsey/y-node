@@ -278,7 +278,7 @@ func cleanServers(values []string) []string {
 	seen := make(map[string]struct{})
 	for _, value := range values {
 		value = strings.TrimSpace(value)
-		if value == "" || net.ParseIP(value) == nil {
+		if value == "" || !validDNSServer(value) {
 			continue
 		}
 		if _, ok := seen[value]; ok {
@@ -288,6 +288,20 @@ func cleanServers(values []string) []string {
 		out = append(out, value)
 	}
 	return out
+}
+
+// validDNSServer accepts a bare address or the [address]:port form an exit
+// node uses when its resolver listens on a non-default port.
+func validDNSServer(value string) bool {
+	if net.ParseIP(value) != nil {
+		return true
+	}
+	host, port, err := net.SplitHostPort(value)
+	if err != nil || net.ParseIP(host) == nil {
+		return false
+	}
+	number, err := strconv.Atoi(port)
+	return err == nil && number >= 1 && number <= 65535
 }
 
 func (m *exitManager) config() exitConfig {

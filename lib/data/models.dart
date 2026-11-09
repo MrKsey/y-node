@@ -251,6 +251,8 @@ class ExitProfile {
     this.invite = '',
     this.peer = '',
     this.token = '',
+    this.dnsAddress = '',
+    this.dnsPort = 53,
   });
 
   final String id;
@@ -275,7 +277,24 @@ class ExitProfile {
   /// outbound-only server.
   final String peer;
 
+  /// The resolver the exit node publishes for its clients, empty when the
+  /// server runs without DNS. The invite carries it as `dns`; [dnsPort] is the
+  /// port the server listens on and is normally 53.
+  final String dnsAddress;
+  final int dnsPort;
+
   String get title => name.trim().isNotEmpty ? name.trim() : address;
+
+  /// True when the exit node advertises a resolver for its clients.
+  bool get hasDns => dnsAddress.trim().isNotEmpty;
+
+  /// The resolver as it goes into the tunnel DNS list. A non-default port is
+  /// kept in the `[address]:port` form; the bridge understands it, while the
+  /// system resolver still receives only the bare address.
+  String get dnsServer =>
+      !hasDns || dnsPort == 53 || dnsPort < 1 || dnsPort > 65535
+      ? dnsAddress
+      : '[$dnsAddress]:$dnsPort';
 
   /// True when the profile was added as a plain SOCKS5 proxy: only the
   /// Yggdrasil address and the port are known. The data path works, because the
@@ -303,6 +322,8 @@ class ExitProfile {
       invite: (json['invite'] as String?) ?? '',
       peer: ((json['peer'] as String?) ?? '').trim(),
       token: ((json['token'] as String?) ?? '').trim(),
+      dnsAddress: ((json['dnsAddress'] as String?) ?? '').trim(),
+      dnsPort: (json['dnsPort'] as num?)?.toInt() ?? 53,
     );
   }
 
@@ -315,6 +336,8 @@ class ExitProfile {
     if (invite.isNotEmpty) 'invite': invite,
     if (peer.isNotEmpty) 'peer': peer,
     if (token.isNotEmpty) 'token': token,
+    if (dnsAddress.isNotEmpty) 'dnsAddress': dnsAddress,
+    if (dnsAddress.isNotEmpty && dnsPort != 53) 'dnsPort': dnsPort,
   };
 
   ExitProfile copyWith({
@@ -326,6 +349,8 @@ class ExitProfile {
     String? invite,
     String? peer,
     String? token,
+    String? dnsAddress,
+    int? dnsPort,
   }) => ExitProfile(
     id: id ?? this.id,
     name: name ?? this.name,
@@ -335,6 +360,8 @@ class ExitProfile {
     invite: invite ?? this.invite,
     peer: peer ?? this.peer,
     token: token ?? this.token,
+    dnsAddress: dnsAddress ?? this.dnsAddress,
+    dnsPort: dnsPort ?? this.dnsPort,
   );
 
   static List<ExitProfile> listFromJson(String? raw) {

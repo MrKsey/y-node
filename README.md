@@ -63,7 +63,7 @@ Without an exit node the app only gives access to Yggdrasil resources, and regul
 - **UDP and QUIC support.** UDP traffic, including DNS and applications using QUIC, is also routed through the Exit Node.
 - **Exit Node limits.** Display of traffic usage and information about speed limits or quotas when set by the server.
 - **Per-app routing.** You can choose which Android apps use the VPN tunnel and which keep working directly. Search and ready-made app presets are available.
-- **DNS.** Resolution of internal `.ygg` names; for regular domain names you can use the system DNS or specified DNS servers.
+- **DNS.** Resolution of internal `.ygg` names; for regular domain names you can use the system DNS or specified DNS servers. An exit node that runs the Alfis resolver advertises it in the invite: the server appears under **Settings → DNS → Available servers** as **DNS from exit node**, and the **DNS exit node** switch in the Exit node settings puts it in use. The entry is then locked in the list and is managed by that switch.
 - **Address book.** A catalogue of Yggdrasil resources with search, the ability to add your own addresses and open them in a browser.
 
 ## Installation

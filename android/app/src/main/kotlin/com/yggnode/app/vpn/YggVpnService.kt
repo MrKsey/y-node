@@ -616,6 +616,11 @@ class YggVpnService : VpnService() {
         } else {
             settings.effectiveDns()
         }) {
+            // The system resolver takes a bare address. A resolver on a
+            // non-default port is stored as "[address]:port" and is only
+            // reachable through the bridge's DNS router, which understands
+            // that form.
+            if (server.startsWith("[")) continue
             try {
                 builder.addDnsServer(server)
             } catch (t: Throwable) {

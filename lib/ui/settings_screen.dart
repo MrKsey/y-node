@@ -207,21 +207,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     label: _dnsLabel(state, server),
                     check: state.dnsChecks[server],
                     l10n: l10n,
-                    trailing: IconButton(
-                      tooltip: l10n.t('remove'),
-                      onPressed: () {
-                        state.dismissDnsDead(server);
-                        save(
-                          settings.copyWith(
-                            dnsServers: [
-                              for (final item in settings.dnsServers)
-                                if (item != server) item,
-                            ],
+                    fromExit: state.isExitDnsPreset(server),
+                    trailing: state.isExitDnsServer(server)
+                        ? Tooltip(
+                            message: l10n.t('dnsExitLocked'),
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 12),
+                              child: Icon(Icons.lock_rounded, size: 18),
+                            ),
+                          )
+                        : IconButton(
+                            tooltip: l10n.t('remove'),
+                            onPressed: () {
+                              state.dismissDnsDead(server);
+                              save(
+                                settings.copyWith(
+                                  dnsServers: [
+                                    for (final item in settings.dnsServers)
+                                      if (item != server) item,
+                                  ],
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.close_rounded, size: 18),
                           ),
-                        );
-                      },
-                      icon: const Icon(Icons.close_rounded, size: 18),
-                    ),
                   ),
                 if (state.dnsDead.any(
                   (server) => !settings.dnsServers.contains(server),
@@ -244,6 +253,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         label: _dnsLabel(state, server),
                         check: state.dnsChecks[server],
                         l10n: l10n,
+                        fromExit: state.isExitDnsPreset(server),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -309,7 +319,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                   _DnsPresets(
-                    presets: state.dnsPresets,
+                    presets: state.allDnsPresets,
                     selected: settings.dnsServers,
                     hidden: state.dnsDead,
                     checks: state.dnsChecks,
@@ -607,7 +617,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   static String? _dnsLabel(AppState state, String address) {
-    for (final preset in state.dnsPresets) {
+    for (final preset in state.allDnsPresets) {
       if (preset.address == address) {
         return [
           preset.location,
@@ -736,6 +746,7 @@ class _DnsServerTile extends StatelessWidget {
     required this.label,
     required this.check,
     required this.l10n,
+    this.fromExit = false,
     this.trailing,
   });
 
@@ -743,6 +754,7 @@ class _DnsServerTile extends StatelessWidget {
   final String? label;
   final DnsCheck? check;
   final L10n l10n;
+  final bool fromExit;
   final Widget? trailing;
 
   @override
@@ -761,7 +773,7 @@ class _DnsServerTile extends StatelessWidget {
       contentPadding: const EdgeInsets.fromLTRB(16, 0, 8, 0),
       leading: Icon(
         check == null
-            ? Icons.dns_outlined
+            ? (fromExit ? Icons.vpn_lock_rounded : Icons.dns_outlined)
             : ok
             ? Icons.check_circle_rounded
             : Icons.error_outline_rounded,
@@ -857,6 +869,7 @@ class _DnsPresets extends StatelessWidget {
             ].where((part) => part.isNotEmpty).join(' · '),
             check: checks[preset.address],
             l10n: l10n,
+            fromExit: preset.fromExit,
             trailing: IconButton(
               tooltip: l10n.t('add'),
               onPressed: () => onAdd(preset.address),

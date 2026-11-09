@@ -568,7 +568,7 @@ func queryDNS(inner *internalNet, via, server string, query []byte, timeout time
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	conn, err := inner.dialContext(ctx, via, net.JoinHostPort(server, "53"))
+	conn, err := inner.dialContext(ctx, via, dnsEndpoint(server))
 	if err != nil {
 		return nil, err
 	}

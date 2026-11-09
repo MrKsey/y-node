@@ -105,6 +105,9 @@ data class ExitProfile(
     val apiPort: Int = 1081,
     /** API token issued by the exit; empty until the first registration. */
     val token: String = "",
+    /** Resolver published by the exit, empty when it runs without DNS. */
+    val dnsAddress: String = "",
+    val dnsPort: Int = 53,
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id)
@@ -113,6 +116,8 @@ data class ExitProfile(
         put("socksPort", socksPort)
         put("apiPort", apiPort)
         if (token.isNotEmpty()) put("token", token)
+        if (dnsAddress.isNotEmpty()) put("dnsAddress", dnsAddress)
+        if (dnsAddress.isNotEmpty() && dnsPort != 53) put("dnsPort", dnsPort)
     }
 
     companion object {
@@ -129,6 +134,8 @@ data class ExitProfile(
                 socksPort = socks,
                 apiPort = api,
                 token = o.optString("token").trim(),
+                dnsAddress = o.optString("dnsAddress").trim(),
+                dnsPort = o.optInt("dnsPort", 53),
             )
         }
 

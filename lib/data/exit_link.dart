@@ -14,10 +14,15 @@ class ExitInvite {
   ///
   ///     yggnode://exit?v=1&a=<address>&p=1080&api=1081&n=<name>&i=<token>
   ///                 &peer=wss://<host>:<port>/ygg?key=<public key>
+  ///                 &dns=<address>&dnsport=<port>
   ///
   /// Returns null for anything else, including an address outside 200::/7.
   /// The `peer` part is optional: an outbound-only server does not advertise
   /// one, and the exit is then reached through the rest of the mesh.
+  ///
+  /// The `dns` part is optional too. It is present when the exit runs a
+  /// resolver for its clients; `dnsport` is omitted for the default port 53.
+  /// The resolver appears in the DNS settings as an exit-node server.
   ///
   /// The invite is optional too. A link without `i` is what an exit shows for a
   /// client that is already allowed (for example after the profile was deleted
@@ -41,6 +46,8 @@ class ExitInvite {
     if (socks < 1 || socks > 65535 || api < 1 || api > 65535) return null;
     final name = (query['n'] ?? '').trim();
     final peer = (query['peer'] ?? '').trim();
+    final dns = (query['dns'] ?? '').trim();
+    final dnsPort = int.tryParse(query['dnsport'] ?? '') ?? 53;
     return ExitInvite(
       profile: ExitProfile(
         id: '$address:$socks',
@@ -50,6 +57,10 @@ class ExitInvite {
         apiPort: api,
         invite: invite,
         peer: isUsablePeer(peer) ? peer : '',
+        // A malformed address is dropped instead of failing the whole invite:
+        // the exit itself stays usable without its resolver.
+        dnsAddress: isYggdrasilAddress(dns) ? dns : '',
+        dnsPort: dnsPort >= 1 && dnsPort <= 65535 ? dnsPort : 53,
       ),
       invite: invite,
     );

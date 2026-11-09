@@ -51,6 +51,8 @@ void main() {
       'exitUdpTrafficFull': 4,
       'exitIpv6TestAddress': 1,
       'exitIpv6TestThrough': 1,
+      'exitDnsNodeHint': 1,
+      'exitDnsAdvertised': 1,
     };
     for (final entry in interpolated.entries) {
       expect(

@@ -4,6 +4,16 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.0] — 2026-11-09
+
+### Added
+
+- An exit node that runs the Alfis DNS server for its clients now advertises the resolver in its invite. The server appears in **Settings → DNS → Available servers** with the note **DNS from exit node** and the name of the exit node.
+- The **DNS exit node** switch in the Exit node settings puts the resolver of the active exit node into the DNS list, selects Yggdrasil DNS when the system resolver was on, and checks the server right away when the tunnel is up. The entry is marked with a lock instead of a remove button, because the switch owns it.
+- The resolver follows the active exit profile: switching to another node replaces the server in the list, and removing the profile removes it.
+- A non-default resolver port from the invite is kept as `[address]:port` and understood by the Go bridge; the system resolver still receives the bare address.
+- The **Log** screen has a **Wrap lines** switch, on by default. Turning it off keeps every entry on one line and scrolls long lines horizontally.
+
 ## [1.4.7] — 2026-11-08
 
 ### Added

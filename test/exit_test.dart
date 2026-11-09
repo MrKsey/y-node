@@ -6,6 +6,8 @@ import 'package:y_node/state/app_state.dart';
 import 'package:y_node/ui/status_ui.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('an exit invite link is parsed', () {
     final invite = ExitInvite.parse(
       'yggnode://exit?v=1&a=202:24ae:c219:8a4a:de94:eae2:b97e:ac87'
@@ -92,6 +94,138 @@ void main() {
     );
     expect(invite, isNotNull);
     expect(invite!.profile.peer, isEmpty);
+  });
+
+  test('an invite carries the resolver of the exit node', () {
+    final invite = ExitInvite.parse(
+      'yggnode://exit?a=202:24ae:c219:8a4a:de94:eae2:b97e:ac87'
+      '&i=token123&dns=202:24ae:c219:8a4a:de94:eae2:b97e:ac87',
+    );
+    expect(invite, isNotNull);
+    expect(invite!.profile.dnsServer, '202:24ae:c219:8a4a:de94:eae2:b97e:ac87');
+    expect(invite.profile.hasDns, isTrue);
+    // The default port is not sent: it is implied.
+    expect(invite.profile.dnsPort, 53);
+  });
+
+  test('a non-default resolver port is kept for display', () {
+    final invite = ExitInvite.parse(
+      'yggnode://exit?a=202::1&dns=202::1&dnsport=5353',
+    );
+    expect(invite, isNotNull);
+    expect(invite!.profile.dnsPort, 5353);
+    expect(invite.profile.dnsServer, '[202::1]:5353');
+  });
+
+  test('a malformed resolver does not break the invite', () {
+    final invite = ExitInvite.parse(
+      'yggnode://exit?a=202::1&dns=10.0.0.1&dnsport=not-a-port',
+    );
+    expect(invite, isNotNull);
+    expect(invite!.profile.hasDns, isFalse);
+    expect(invite.profile.dnsPort, 53);
+  });
+
+  test('a resolver outside the allowed port range falls back to 53', () {
+    final invite = ExitInvite.parse(
+      'yggnode://exit?a=202::1&dns=202::1&dnsport=70000',
+    );
+    expect(invite, isNotNull);
+    expect(invite!.profile.dnsPort, 53);
+  });
+
+  test('the exit resolver survives a JSON round-trip', () {
+    const profile = ExitProfile(
+      id: '202::1:1080',
+      name: 'Home',
+      address: '202::1',
+      dnsAddress: '202::1',
+      dnsPort: 5353,
+    );
+    final parsed = ExitProfile.listFromJson(ExitProfile.listToJson([profile]));
+    expect(parsed.single.dnsAddress, '202::1');
+    expect(parsed.single.dnsPort, 5353);
+  });
+
+  test('a profile without a resolver stays compatible', () {
+    const profile = ExitProfile(
+      id: '202::1:1080',
+      name: 'Home',
+      address: '202::1',
+    );
+    final parsed = ExitProfile.listFromJson(ExitProfile.listToJson([profile]));
+    expect(parsed.single.hasDns, isFalse);
+    expect(parsed.single.dnsPort, 53);
+  });
+
+  group('the exit node resolver', () {
+    const exit = ExitProfile(
+      id: '202::1:1080',
+      name: 'Exit',
+      address: '202::1',
+      dnsAddress: '202::1',
+    );
+    const other = ExitProfile(
+      id: '202::2:1080',
+      name: 'Other',
+      address: '202::2',
+      dnsAddress: '202::2',
+    );
+
+    AppState stateWith({
+      List<ExitProfile> profiles = const [exit],
+      String activeId = '202::1:1080',
+      String dnsMode = DnsMode.yggdrasil,
+    }) => AppState()
+      ..settings = AppSettings(
+        dnsMode: dnsMode,
+        exitProfiles: profiles,
+        exitActiveId: activeId,
+      );
+
+    test('is offered in the available list with its note', () {
+      final state = stateWith();
+      final preset = state.allDnsPresets.firstWhere(
+        (preset) => preset.address == '202::1',
+      );
+      expect(preset.fromExit, isTrue);
+      expect(preset.location, 'Exit');
+      expect(preset.note, 'DNS from exit node');
+    });
+
+    test('the switch puts the resolver into the list and locks it', () async {
+      final state = stateWith();
+      expect(state.exitDnsInUse, isFalse);
+      await state.setExitDns(true);
+      expect(state.exitDnsInUse, isTrue);
+      expect(state.isExitDnsServer('202::1'), isTrue);
+      expect(state.isExitDnsServer('308:84:68:55::'), isFalse);
+      await state.setExitDns(false);
+      expect(state.exitDnsInUse, isFalse);
+      expect(state.settings.dnsServers, isNot(contains('202::1')));
+    });
+
+    test('the switch follows the active profile', () async {
+      final state = stateWith(profiles: const [exit, other]);
+      await state.setExitDns(true);
+      await state.setExitActive('202::2:1080');
+      expect(state.exitDnsServer, '202::2');
+      expect(state.settings.dnsServers, contains('202::2'));
+      expect(state.settings.dnsServers, isNot(contains('202::1')));
+    });
+
+    test('removing the profile removes its resolver', () async {
+      final state = stateWith();
+      await state.setExitDns(true);
+      await state.saveExitProfiles(const []);
+      expect(state.settings.dnsServers, isNot(contains('202::1')));
+    });
+
+    test('the switch selects Yggdrasil DNS over the system one', () async {
+      final state = stateWith(dnsMode: DnsMode.system);
+      await state.setExitDns(true);
+      expect(state.settings.dnsMode, DnsMode.yggdrasil);
+    });
   });
 
   test('a peer key drops the query the node does not report', () {

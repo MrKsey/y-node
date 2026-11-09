@@ -191,7 +191,7 @@ func (r *dnsRouter) queryDirect(ctx context.Context, server string, query []byte
 }
 
 func (r *dnsRouter) queryExit(ctx context.Context, server string, query []byte) ([]byte, error) {
-	address := net.JoinHostPort(server, "53")
+	address := dnsEndpoint(server)
 	if r.exit.udpEnabled() {
 		response, err := queryDNSDatagram(ctx, func(ctx context.Context, _, address string) (net.Conn, error) {
 			return r.exit.DialContext(ctx, "udp", address)
@@ -258,7 +258,7 @@ func queryDNSUpstream(
 	server string,
 	query []byte,
 ) ([]byte, error) {
-	address := net.JoinHostPort(server, "53")
+	address := dnsEndpoint(server)
 	response, err := queryDNSNetwork(ctx, dial, "udp", address, query)
 	if err != nil {
 		return nil, err
@@ -267,6 +267,17 @@ func queryDNSUpstream(
 		return queryDNSNetwork(ctx, dial, "tcp", address, query)
 	}
 	return response, nil
+}
+
+// dnsEndpoint returns the dial address of a resolver. Servers are normally
+// stored as bare addresses and queried on port 53; an exit node that publishes
+// its resolver on another port sends it as `[address]:port`, which already
+// carries the port.
+func dnsEndpoint(server string) string {
+	if host, _, err := net.SplitHostPort(server); err == nil && host != "" {
+		return server
+	}
+	return net.JoinHostPort(server, "53")
 }
 
 func queryDNSNetwork(

@@ -21,6 +21,10 @@ class _LogScreenState extends State<LogScreen> {
   int _size = 0;
   bool _loading = true;
 
+  /// Long log lines wrap by default: the common case is a phone-width screen
+  /// and a message that would otherwise need horizontal scrolling.
+  bool _wrap = true;
+
   @override
   void initState() {
     super.initState();
@@ -42,6 +46,20 @@ class _LogScreenState extends State<LogScreen> {
       _loading = false;
     });
   }
+
+  /// The selectable log body. Without wrapping the text is placed in a
+  /// horizontal scroll view, which gives it an unbounded width: every entry
+  /// stays on one line and can be scrolled into view.
+  Widget _logText(ThemeData theme) => SelectionArea(
+    child: Text(
+      _text,
+      softWrap: _wrap,
+      style: theme.textTheme.bodySmall?.copyWith(
+        fontFamily: 'monospace',
+        height: 1.35,
+      ),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -85,6 +103,16 @@ class _LogScreenState extends State<LogScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
+                if (_text.isNotEmpty)
+                  SwitchListTile(
+                    dense: true,
+                    visualDensity: VisualDensity.compact,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                    secondary: const Icon(Icons.wrap_text_rounded, size: 20),
+                    title: Text(l10n.t('logWrap')),
+                    value: _wrap,
+                    onChanged: (value) => setState(() => _wrap = value),
+                  ),
                 Expanded(
                   child: _text.isEmpty
                       ? EmptyHint(
@@ -104,13 +132,15 @@ class _LogScreenState extends State<LogScreen> {
                           ),
                           child: SingleChildScrollView(
                             reverse: true,
-                            child: SelectableText(
-                              _text,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                fontFamily: 'monospace',
-                                height: 1.35,
-                              ),
-                            ),
+                            child: _wrap
+                                ? _logText(theme)
+                                // Without wrapping the lines are as long as the
+                                // longest one, so the text needs its own
+                                // horizontal scroll area.
+                                : SingleChildScrollView(
+                                    scrollDirection: Axis.horizontal,
+                                    child: _logText(theme),
+                                  ),
                           ),
                         ),
                 ),

@@ -138,6 +138,31 @@ class AppState extends ChangeNotifier {
 
   List<DnsPreset> dnsPresets = WikiService.defaultDnsPresets;
 
+  /// The wiki list plus the resolver of every exit node that publishes one.
+  /// Exit entries come first and win over a wiki entry with the same address,
+  /// so the row says where the server came from.
+  List<DnsPreset> get allDnsPresets {
+    final fromExit = <String, DnsPreset>{};
+    for (final profile in settings.exitProfiles) {
+      if (!profile.hasDns) continue;
+      fromExit.putIfAbsent(
+        profile.dnsServer,
+        () => DnsPreset(
+          address: profile.dnsServer,
+          location: profile.title,
+          note: l10n.t('dnsFromExitNode'),
+          fromExit: true,
+        ),
+      );
+    }
+    if (fromExit.isEmpty) return dnsPresets;
+    return [
+      ...fromExit.values,
+      for (final preset in dnsPresets)
+        if (!fromExit.containsKey(preset.address)) preset,
+    ];
+  }
+
   /// DNS health, keyed by server address, measured through the running node.
   Map<String, DnsCheck> dnsChecks = const {};
   bool checkingDns = false;
@@ -313,6 +338,38 @@ class AppState extends ChangeNotifier {
   /// True when the exit node is switched on and the tunnel carries traffic
   /// through it.
   bool get exitInUse => settings.exitActive && snapshot.isConnected;
+
+  /// The active exit profile when it publishes a DNS resolver. The
+  /// "DNS exit node" switch in the exit settings controls this one server.
+  ExitProfile? get exitDnsProfile {
+    final profile = settings.exitActiveProfile;
+    return profile != null && profile.hasDns ? profile : null;
+  }
+
+  /// The resolver the active exit node publishes, empty when there is none.
+  String get exitDnsServer => exitDnsProfile?.dnsServer ?? '';
+
+  /// True when the resolver of the active exit node is in the tunnel list and
+  /// the app actually uses that list.
+  bool get exitDnsInUse =>
+      settings.dnsMode != DnsMode.system &&
+      exitDnsServer.isNotEmpty &&
+      settings.dnsServers.contains(exitDnsServer);
+
+  /// True when [server] is the resolver of the active exit node. Such an entry
+  /// belongs to the "DNS exit node" switch, so the DNS list shows a lock
+  /// instead of a remove button.
+  bool isExitDnsServer(String server) =>
+      exitDnsServer.isNotEmpty && server == exitDnsServer;
+
+  /// True when [server] is published by any exit profile. The DNS list uses
+  /// this to mark the row as an exit-node server, not a wiki one.
+  bool isExitDnsPreset(String server) {
+    for (final profile in settings.exitProfiles) {
+      if (profile.hasDns && profile.dnsServer == server) return true;
+    }
+    return false;
+  }
 
   /// True while the service is still bringing the link up: either the status
   /// says so, or the tunnel is up but no peer has finished its handshake yet.
@@ -1102,6 +1159,33 @@ class AppState extends ChangeNotifier {
   Future<void> setExitLocalDns(bool value) =>
       saveSettings(settings.copyWith(exitLocalDns: value));
 
+  /// Adds or removes the resolver published by the active exit node. Turning
+  /// the switch on also selects Yggdrasil DNS: the system resolver would ignore
+  /// the list. The server is checked right away when the tunnel is up.
+  Future<void> setExitDns(bool value) async {
+    final profile = exitDnsProfile;
+    if (profile == null) return;
+    final server = profile.dnsServer;
+    final servers = [...settings.dnsServers];
+    if (value) {
+      if (!servers.contains(server)) servers.add(server);
+    } else {
+      servers.remove(server);
+    }
+    final modeChanged = value && settings.dnsMode == DnsMode.system;
+    await saveSettings(
+      settings.copyWith(
+        dnsServers: servers,
+        dnsMode: modeChanged ? DnsMode.yggdrasil : settings.dnsMode,
+      ),
+    );
+    if (modeChanged) {
+      resetDnsVerification();
+    } else if (value) {
+      unawaited(checkDnsServer(server));
+    }
+  }
+
   /// Turns the UDP relay of the exit on or off. The bridge opens its SOCKS5
   /// association once, when the tunnel starts, so a running tunnel would keep
   /// the old mode until the next connect: the switch rebuilds it right away.
@@ -1121,14 +1205,55 @@ class AppState extends ChangeNotifier {
 
   Future<void> setExitActive(String id) async {
     if (settings.exitActiveId == id) return;
-    if (!settings.exitProfiles.any((profile) => profile.id == id)) return;
-    await saveSettings(settings.copyWith(exitActiveId: id));
+    final next = settings.exitProfiles.where((profile) => profile.id == id);
+    if (next.isEmpty) return;
+    // The resolver of the exit node follows the active profile: a server the
+    // switch put in the list is replaced with the resolver of the new node.
+    final previous = exitDnsServer;
+    final servers = [...settings.dnsServers];
+    if (previous.isNotEmpty && servers.contains(previous)) {
+      servers.remove(previous);
+      final dns = next.first.dnsServer;
+      if (dns.isNotEmpty) servers.add(dns);
+    }
+    await saveSettings(
+      settings.copyWith(exitActiveId: id, dnsServers: servers),
+    );
   }
+
+  /// The resolvers the exit profiles publish. Used to keep the tunnel list in
+  /// step with the profile list.
+  static Set<String> _exitDnsAddresses(Iterable<ExitProfile> profiles) => {
+    for (final profile in profiles)
+      if (profile.hasDns) profile.dnsServer,
+  };
 
   Future<void> saveExitProfiles(List<ExitProfile> profiles) async {
     var activeId = settings.exitActiveId;
     if (!profiles.any((profile) => profile.id == activeId)) {
       activeId = profiles.isEmpty ? '' : profiles.first.id;
+    }
+    // A resolver that belonged to a profile which is gone (or no longer
+    // publishes one) leaves the list with it. When the switch was on, the
+    // resolver of the profile that is active now takes its place.
+    final before = _exitDnsAddresses(settings.exitProfiles);
+    final after = _exitDnsAddresses(profiles);
+    final previous = exitDnsServer;
+    final hadExitDns =
+        previous.isNotEmpty && settings.dnsServers.contains(previous);
+    final servers = [
+      for (final server in settings.dnsServers)
+        if (!before.contains(server) || after.contains(server)) server,
+    ];
+    if (hadExitDns) {
+      final active = profiles.isEmpty
+          ? null
+          : profiles.firstWhere(
+              (profile) => profile.id == activeId,
+              orElse: () => profiles.first,
+            );
+      final dns = active?.dnsServer ?? '';
+      if (dns.isNotEmpty && !servers.contains(dns)) servers.add(dns);
     }
     await saveSettings(
       settings.copyWith(
@@ -1139,6 +1264,7 @@ class AppState extends ChangeNotifier {
           profiles,
           settings.exitEnabled,
         ),
+        dnsServers: servers,
       ),
     );
     await _syncExitPeers(profiles);
@@ -2203,14 +2329,18 @@ class AppState extends ChangeNotifier {
       dnsDead = dead;
       if (dead.isEmpty) return true;
       if (!replaceDead) return true;
+      // The resolver of the active exit node belongs to its switch: a failed
+      // check marks it red but does not drop it, or the switch would turn
+      // itself off behind the user's back.
+      final pinned = exitDnsServer;
       var next = [
         for (final server in settings.dnsServers)
-          if (!dead.contains(server)) server,
+          if (!dead.contains(server) || server == pinned) server,
       ];
       if (next.isEmpty) {
         final used = {...settings.dnsServers, ...dead};
         next = [
-          for (final preset in dnsPresets)
+          for (final preset in allDnsPresets)
             if (!preset.deprecated &&
                 !used.contains(preset.address) &&
                 !_dnsDismissed.contains(preset.address))

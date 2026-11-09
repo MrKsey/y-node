@@ -429,6 +429,10 @@ class L10n {
     'exitLocalDnsHint':
         'Names like router.lan or nas.local are sent to the DNS of the real '
         'network instead of the exit',
+    'exitDnsNode': 'DNS exit node',
+    'exitDnsNodeHint': 'Use the resolver the exit node publishes: %s',
+    'exitDnsNodeUnavailable': 'No exit node with a DNS server is selected',
+    'exitDnsAdvertised': 'DNS %s',
     'exitDnsTitle': 'Exit DNS',
     'exitDnsHint':
         'Public names are resolved through the exit with these servers',
@@ -544,7 +548,10 @@ class L10n {
         'left, replaced.',
     'dnsInUse': 'In use',
     'dnsAvailable': 'Available servers',
-    'dnsAvailableHint': 'Servers published in the Yggdrasil wiki',
+    'dnsAvailableHint':
+        'Servers published in the Yggdrasil wiki and by your exit nodes',
+    'dnsFromExitNode': 'DNS from exit node',
+    'dnsExitLocked': 'Managed by the DNS exit node switch',
     'dnsReplaced': 'Dead servers replaced: %s',
     'dnsAllDead': 'No DNS server answered; check the tunnel',
     'dnsSource': 'List source: Yggdrasil wiki',
@@ -610,6 +617,7 @@ class L10n {
     'logCopied': 'The log was copied',
     'logPath': 'File',
     'logSize': 'Size',
+    'logWrap': 'Wrap lines',
 
     'onboardingWelcomeTitle': 'Welcome to Y-Node',
     'onboardingWelcomeBody':
