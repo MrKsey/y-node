@@ -118,6 +118,12 @@ type profileHealth struct {
 	// "checking". It is only shown in the UI; the traffic decision uses
 	// IPv6Available.
 	IPv6State string
+	// CapsKnown is true after a status answer carried the capabilities block.
+	// DNSAddress and DNSPort are the resolver the exit publishes for its
+	// clients; they stay empty when the exit runs without DNS.
+	CapsKnown  bool
+	DNSAddress string
+	DNSPort    int
 	// udpUnsupportedUntil keeps an exit that answered "command not supported"
 	// out of the UDP failover list for a while, so every DNS query does not pay
 	// for another refused handshake.
@@ -369,9 +375,9 @@ func (m *exitManager) carriesIPv6() bool {
 	return m.ipv6Path.Load()
 }
 
-// markCapabilities stores what the exit said about itself. Only the IPv6 part
-// matters here: UDP support is discovered on the data path, where a refusal is
-// immediate and specific.
+// markCapabilities stores what the exit said about itself: the IPv6 path and
+// the DNS resolver it publishes for its clients. UDP support is discovered on
+// the data path, where a refusal is immediate and specific.
 func (m *exitManager) markCapabilities(id string, caps *exitAPICapabilities) {
 	if caps == nil {
 		return
@@ -385,6 +391,17 @@ func (m *exitManager) markCapabilities(id string, caps *exitAPICapabilities) {
 	available := caps.IPv6
 	health.IPv6Available = &available
 	health.IPv6State = strings.TrimSpace(caps.IPv6State)
+	health.CapsKnown = true
+	if caps.DNS {
+		health.DNSAddress = strings.TrimSpace(caps.DNSAddress)
+		health.DNSPort = caps.DNSPort
+		if health.DNSPort <= 0 {
+			health.DNSPort = 53
+		}
+	} else {
+		health.DNSAddress = ""
+		health.DNSPort = 0
+	}
 	allowed := m.ipv6PathLocked()
 	m.mu.Unlock()
 	m.ipv6Path.Store(allowed)
@@ -1169,6 +1186,15 @@ type exitProfileStatus struct {
 	IPv6Available *bool `json:"ipv6Available,omitempty"`
 	// IPv6State is the short reason: ok, none, broken, off or checking.
 	IPv6State string `json:"ipv6State,omitempty"`
+
+	// DNSAddress is the resolver the exit publishes for its clients. Empty
+	// when the exit has no DNS, and DNSKnown is true only after a status
+	// answer carried the capabilities block: the app uses the pair to fill a
+	// profile that was imported before the server turned DNS on, and to clear
+	// it when the server turns DNS off.
+	DNSAddress string `json:"dnsAddress,omitempty"`
+	DNSPort    int    `json:"dnsPort,omitempty"`
+	DNSKnown   bool   `json:"dnsKnown,omitempty"`
 }
 
 // exitQuota mirrors the quota block of the exit status API. Limits are 0 when
@@ -1279,6 +1305,9 @@ func (m *exitManager) statusBase() exitStatus {
 			item.Suspended = health.Suspended
 			item.IPv6Available = health.IPv6Available
 			item.IPv6State = health.IPv6State
+			item.DNSAddress = health.DNSAddress
+			item.DNSPort = health.DNSPort
+			item.DNSKnown = health.CapsKnown
 		}
 		// Publish a token learned at run time, unless the profile already
 		// carries the same one: the app saves the difference.
@@ -1353,6 +1382,12 @@ type exitAPICapabilities struct {
 	Registration bool   `json:"registration"`
 	Token        bool   `json:"token"`
 	IPv6State    string `json:"ipv6State,omitempty"`
+
+	// DNS tells the client that the exit runs a resolver for its clients.
+	// DNSAddress is the Yggdrasil address to query; DNSPort is normally 53.
+	DNS        bool   `json:"dns"`
+	DNSAddress string `json:"dnsAddress,omitempty"`
+	DNSPort    int    `json:"dnsPort,omitempty"`
 }
 
 // apiCall performs one HTTP request against the API of an exit through
@@ -1572,6 +1607,11 @@ type registerResult struct {
 	// Token is the API credential the exit issued. The app stores it in the
 	// profile; it is never shown in the UI.
 	Token string `json:"token,omitempty"`
+	// DNSAddress is the resolver the exit published in the registration
+	// answer. The app stores it in the profile, so the "DNS exit node" switch
+	// becomes usable right after the invite is redeemed.
+	DNSAddress string `json:"dnsAddress,omitempty"`
+	DNSPort    int    `json:"dnsPort,omitempty"`
 }
 
 // profile returns one configured profile by id. An empty id selects the active
@@ -1635,6 +1675,8 @@ func (m *exitManager) register(ctx context.Context, profileID, invite, address, 
 		Error       string `json:"error"`
 		Message     string `json:"message"`
 		Token       string `json:"token"`
+
+		Capabilities *exitAPICapabilities `json:"capabilities,omitempty"`
 	}
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return registerResult{Error: "bad_response", Message: err.Error()}
@@ -1652,15 +1694,24 @@ func (m *exitManager) register(ctx context.Context, profileID, invite, address, 
 	// JSON, so the profile can store it.
 	m.rememberToken(profile.ID, payload.Token)
 	m.markAuth(profile.ID, true, false)
+	m.markCapabilities(profile.ID, payload.Capabilities)
 	m.markSuccess(profile.ID, time.Since(started))
 	m.log.emit("info", "registered with exit %s (%s)", profile.Name, payload.ExitName)
-	return registerResult{
+	result := registerResult{
 		OK:          true,
 		Allowlisted: true,
 		Registered:  payload.Registered,
 		ExitName:    payload.ExitName,
 		Token:       payload.Token,
 	}
+	if payload.Capabilities != nil && payload.Capabilities.DNS {
+		result.DNSAddress = strings.TrimSpace(payload.Capabilities.DNSAddress)
+		result.DNSPort = payload.Capabilities.DNSPort
+		if result.DNSPort <= 0 {
+			result.DNSPort = 53
+		}
+	}
+	return result
 }
 
 // bufioReader avoids importing bufio at the top of the file only for one call.

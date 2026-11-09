@@ -247,7 +247,7 @@ class ExitProfile {
     required this.name,
     required this.address,
     this.socksPort = 1080,
-    this.apiPort = 1081,
+    this.apiPort = 1080,
     this.invite = '',
     this.peer = '',
     this.token = '',
@@ -318,7 +318,7 @@ class ExitProfile {
           : (json['name'] as String).trim(),
       address: address,
       socksPort: socks,
-      apiPort: (json['apiPort'] as num?)?.toInt() ?? 1081,
+      apiPort: (json['apiPort'] as num?)?.toInt() ?? 1080,
       invite: (json['invite'] as String?) ?? '',
       peer: ((json['peer'] as String?) ?? '').trim(),
       token: ((json['token'] as String?) ?? '').trim(),
@@ -464,6 +464,9 @@ class ExitProfileStatus {
     this.token = '',
     this.ipv6Available,
     this.ipv6State = '',
+    this.dnsAddress = '',
+    this.dnsPort = 53,
+    this.dnsKnown = false,
   });
 
   final String id;
@@ -525,6 +528,18 @@ class ExitProfileStatus {
   /// `checking`.
   final String ipv6State;
 
+  /// The resolver the exit publishes for its clients, empty when it runs
+  /// without DNS. The status carries it only after the exit reported its
+  /// capabilities, so a profile imported before DNS was turned on can pick it
+  /// up on the next check.
+  final String dnsAddress;
+  final int dnsPort;
+
+  /// True when the exit sent the capabilities block in its status answer. The
+  /// app then knows that an empty [dnsAddress] means "no DNS", not "not
+  /// reported".
+  final bool dnsKnown;
+
   /// True when the exit has IPv6 but cannot reach the internet over it. The
   /// tunnel then stops sending IPv6 traffic instead of letting it time out.
   bool get ipv6Broken => ipv6Available == false && ipv6State == 'broken';
@@ -580,6 +595,9 @@ class ExitProfileStatus {
             ? json['ipv6Available'] as bool
             : null,
         ipv6State: ((json['ipv6State'] as String?) ?? '').trim(),
+        dnsAddress: ((json['dnsAddress'] as String?) ?? '').trim(),
+        dnsPort: (json['dnsPort'] as num?)?.toInt() ?? 53,
+        dnsKnown: (json['dnsKnown'] as bool?) ?? false,
       );
 
   ExitProfileStatus copyWith({String? name}) => ExitProfileStatus(
@@ -603,6 +621,9 @@ class ExitProfileStatus {
     token: token,
     ipv6Available: ipv6Available,
     ipv6State: ipv6State,
+    dnsAddress: dnsAddress,
+    dnsPort: dnsPort,
+    dnsKnown: dnsKnown,
   );
 }
 
@@ -897,6 +918,8 @@ class ExitRegistration {
     this.error = '',
     this.message = '',
     this.token = '',
+    this.dnsAddress = '',
+    this.dnsPort = 53,
   });
 
   final bool ok;
@@ -910,6 +933,11 @@ class ExitRegistration {
   /// never shown in the UI; empty for a server from before 1.3.
   final String token;
 
+  /// The resolver the exit published in the registration answer. Empty when
+  /// the exit runs without DNS or is too old to send capabilities.
+  final String dnsAddress;
+  final int dnsPort;
+
   factory ExitRegistration.fromJson(Map<String, dynamic> json) =>
       ExitRegistration(
         ok: (json['ok'] as bool?) ?? false,
@@ -919,6 +947,8 @@ class ExitRegistration {
         error: (json['error'] as String?) ?? '',
         message: (json['message'] as String?) ?? '',
         token: ((json['token'] as String?) ?? '').trim(),
+        dnsAddress: ((json['dnsAddress'] as String?) ?? '').trim(),
+        dnsPort: (json['dnsPort'] as num?)?.toInt() ?? 53,
       );
 
   static ExitRegistration? tryParse(String? raw) {

@@ -4,6 +4,14 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.1] — 2026-11-09
+
+### Fixed
+
+- The **DNS exit node** switch becomes usable for a profile that was imported before the exit node turned DNS on: the app now reads the resolver from the exit status capabilities, stores it in the profile and runs one check after the tunnel connects.
+- A registration answer now stores the resolver the exit publishes, so a freshly added profile offers the switch without waiting for the next status poll.
+- New exit profiles default to API port `1080`, matching the X-Node installer default where the API shares the SOCKS5 listener.
+
 ## [1.5.0] — 2026-11-09
 
 ### Added

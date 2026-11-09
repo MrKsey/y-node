@@ -102,7 +102,7 @@ data class ExitProfile(
     val name: String,
     val address: String,
     val socksPort: Int = 1080,
-    val apiPort: Int = 1081,
+    val apiPort: Int = 1080,
     /** API token issued by the exit; empty until the first registration. */
     val token: String = "",
     /** Resolver published by the exit, empty when it runs without DNS. */
@@ -125,7 +125,7 @@ data class ExitProfile(
             val address = o.optString("address").trim()
             if (address.isEmpty()) return null
             val socks = o.optInt("socksPort", 1080)
-            val api = o.optInt("apiPort", 1081)
+            val api = o.optInt("apiPort", 1080)
             val id = o.optString("id").ifBlank { "$address:$socks" }
             return ExitProfile(
                 id = id,

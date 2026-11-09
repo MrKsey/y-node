@@ -811,7 +811,7 @@ class _ExitProfileDialogState extends State<_ExitProfileDialog> {
     _name = TextEditingController(text: initial?.name ?? '');
     _address = TextEditingController(text: initial?.address ?? '');
     _socks = TextEditingController(text: '${initial?.socksPort ?? 1080}');
-    _api = TextEditingController(text: '${initial?.apiPort ?? 1081}');
+    _api = TextEditingController(text: '${initial?.apiPort ?? 1080}');
     _invite = TextEditingController(text: initial?.invite ?? '');
     _peer = TextEditingController(text: initial?.peer ?? '');
     _token = TextEditingController(text: initial?.token ?? '');

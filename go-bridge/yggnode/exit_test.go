@@ -156,6 +156,30 @@ func TestExitCarriesIPv6WhenAnyProfileWorks(t *testing.T) {
 	}
 }
 
+// The exit publishes the resolver it runs for its clients. A profile imported
+// before DNS was enabled learns it from the status answer, and a later "DNS is
+// off" answer clears it again.
+func TestExitStatusCarriesDNSResolver(t *testing.T) {
+	manager, err := newExitManager(`{"enabled":true,"profiles":[{"address":"200::1","socksPort":1080,"apiPort":1081}]}`, nil, nil, &goLogger{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.markCapabilities("200::1:1080", &exitAPICapabilities{
+		DNS:        true,
+		DNSAddress: "200::1",
+		DNSPort:    5353,
+	})
+	item := manager.status().Profiles[0]
+	if !item.DNSKnown || item.DNSAddress != "200::1" || item.DNSPort != 5353 {
+		t.Fatalf("dns = %q:%d known=%v", item.DNSAddress, item.DNSPort, item.DNSKnown)
+	}
+	manager.markCapabilities("200::1:1080", &exitAPICapabilities{DNS: false})
+	item = manager.status().Profiles[0]
+	if !item.DNSKnown || item.DNSAddress != "" {
+		t.Fatalf("dns = %q known=%v, want it cleared", item.DNSAddress, item.DNSKnown)
+	}
+}
+
 func TestIsLocalDestination(t *testing.T) {
 	for _, value := range []string{"10.1.2.3", "192.168.1.1", "127.0.0.1", "169.254.1.1", "100.64.0.1", "fe80::1", "fc00::1"} {
 		if !isLocalDestination(net.ParseIP(value)) {

@@ -39,7 +39,7 @@ void main() {
     expect(invite!.invite, isEmpty);
     expect(invite.profile.socksOnly, isTrue);
     expect(invite.profile.socksPort, 1080);
-    expect(invite.profile.apiPort, 1081);
+    expect(invite.profile.apiPort, 1080);
   });
 
   test('a profile with a token or an invite is not SOCKS5 only', () {

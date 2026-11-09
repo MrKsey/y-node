@@ -244,6 +244,10 @@ class AppState extends ChangeNotifier {
   /// its own exit status arrives.
   ExitStatus? _exitChecked;
   bool checkingExit = false;
+  // A capability check runs once per connection, after the first peer has
+  // finished its handshake: the status API goes through Yggdrasil and cannot
+  // answer before that.
+  bool _exitCheckedOnConnect = false;
 
   /// True while the UDP relay self-check runs.
   bool testingUdp = false;
@@ -514,10 +518,23 @@ class AppState extends ChangeNotifier {
     }
     if (next.exit.updatedAt > 0) _exitChecked = null;
     // The bridge publishes a token it learned; keep it in the profile.
-    _adoptExitTokens(next.exit);
+    _adoptExitStatus(next.exit);
     // A manual check belongs to the session it ran in: while the tunnel is
     // down or reconnecting the live snapshot is the only source of truth.
-    if (!next.isConnected) _exitChecked = null;
+    if (!next.isConnected) {
+      _exitChecked = null;
+      _exitCheckedOnConnect = false;
+    }
+    // The status answer carries the resolver the exit publishes. Checking once
+    // when the tunnel is ready lets a profile that was imported before the
+    // server turned DNS on pick the resolver up without a manual check.
+    if (next.isConnected &&
+        dnsReady &&
+        !_exitCheckedOnConnect &&
+        settings.exitActive) {
+      _exitCheckedOnConnect = true;
+      unawaited(checkExitProfiles());
+    }
     if (next.isConnected && appliedExitSignature.isEmpty) {
       appliedExitSignature = _exitSignatureOf(settings);
     }
@@ -1085,27 +1102,42 @@ class AppState extends ChangeNotifier {
     return fallback;
   }
 
-  /// Moves API tokens learned by the bridge into the profiles. The bridge gets
-  /// one when an exit issues it at registration, or fetches it from
-  /// `/v1/token` when a profile predates the token scheme; the status JSON
-  /// carries it back here so it survives a restart and is sent on every poll.
-  void _adoptExitTokens(ExitStatus? status) {
+  /// Moves API tokens and the DNS resolver learned by the bridge into the
+  /// profiles. The bridge gets a token when an exit issues it at registration,
+  /// or fetches it from `/v1/token` when a profile predates the token scheme;
+  /// the status JSON carries it back here so it survives a restart and is sent
+  /// on every poll. The same answer carries the resolver the exit publishes,
+  /// so a profile imported before DNS was enabled starts offering the "DNS
+  /// exit node" switch without a new invite.
+  void _adoptExitStatus(ExitStatus? status) {
     if (status == null || status.profiles.isEmpty) return;
-    final learned = <String, String>{
-      for (final item in status.profiles)
-        if (item.token.isNotEmpty) item.id: item.token,
-    };
-    if (learned.isEmpty) return;
     var changed = false;
     final next = <ExitProfile>[];
     for (final profile in settings.exitProfiles) {
-      final token = learned[profile.id];
-      if (token != null && token != profile.token) {
-        next.add(profile.copyWith(token: token));
-        changed = true;
-      } else {
-        next.add(profile);
+      var updated = profile;
+      for (final item in status.profiles) {
+        if (item.id != profile.id) continue;
+        if (item.token.isNotEmpty && item.token != updated.token) {
+          updated = updated.copyWith(token: item.token);
+        }
+        if (item.dnsKnown) {
+          if (item.dnsAddress.isNotEmpty &&
+              (item.dnsAddress != updated.dnsAddress ||
+                  item.dnsPort != updated.dnsPort)) {
+            updated = updated.copyWith(
+              dnsAddress: item.dnsAddress,
+              dnsPort: item.dnsPort > 0 ? item.dnsPort : 53,
+            );
+          } else if (item.dnsAddress.isEmpty && updated.dnsAddress.isNotEmpty) {
+            // The exit sent capabilities and they say "no DNS": the old
+            // resolver is gone, so the switch must not offer a dead server.
+            updated = updated.copyWith(dnsAddress: '', dnsPort: 53);
+          }
+        }
+        break;
       }
+      if (!identical(updated, profile)) changed = true;
+      next.add(updated);
     }
     if (!changed) return;
     unawaited(saveSettings(settings.copyWith(exitProfiles: next)));
@@ -1461,9 +1493,16 @@ class AppState extends ChangeNotifier {
         await Native.registerExit(profileId: profile.id, invite: token) ??
         const ExitRegistration(error: 'native_error');
     if (result.ok) {
-      if (result.token.isNotEmpty) {
+      final dns = result.dnsAddress;
+      if (result.token.isNotEmpty ||
+          (dns.isNotEmpty && dns != profile.dnsAddress)) {
         await updateExitProfile(
-          profile.copyWith(invite: token, token: result.token),
+          profile.copyWith(
+            invite: token,
+            token: result.token.isNotEmpty ? result.token : null,
+            dnsAddress: dns.isNotEmpty ? dns : null,
+            dnsPort: result.dnsPort > 0 ? result.dnsPort : null,
+          ),
         );
       }
       _exitChecked = await Native.exitStatus();
@@ -1476,7 +1515,7 @@ class AppState extends ChangeNotifier {
     if (!snapshot.isConnected) return null;
     final status = await Native.exitStatus();
     if (status != null) {
-      _adoptExitTokens(status);
+      _adoptExitStatus(status);
       _exitChecked = status;
       notifyListeners();
     }
@@ -1492,7 +1531,7 @@ class AppState extends ChangeNotifier {
         timeoutMs: settings.exitProfiles.length * 6000 + 4000,
       );
       if (status != null) {
-        _adoptExitTokens(status);
+        _adoptExitStatus(status);
         _exitChecked = status;
       }
       return status;

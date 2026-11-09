@@ -12,7 +12,7 @@ class ExitInvite {
 
   /// Parses the link printed by `ygg-exit invite`:
   ///
-  ///     yggnode://exit?v=1&a=<address>&p=1080&api=1081&n=<name>&i=<token>
+  ///     yggnode://exit?v=1&a=<address>&p=1080&api=1080&n=<name>&i=<token>
   ///                 &peer=wss://<host>:<port>/ygg?key=<public key>
   ///                 &dns=<address>&dnsport=<port>
   ///
@@ -40,7 +40,7 @@ class ExitInvite {
     if (!isYggdrasilAddress(address)) return null;
     final invite = (query['i'] ?? '').trim();
     final socks = int.tryParse(query['p'] ?? '') ?? 1080;
-    var api = int.tryParse(query['api'] ?? '') ?? 1081;
+    var api = int.tryParse(query['api'] ?? '') ?? 1080;
     // api=0 means the server serves /v1/... on the SOCKS5 listener.
     if (api == 0) api = socks;
     if (socks < 1 || socks > 65535 || api < 1 || api > 65535) return null;
