@@ -4,6 +4,18 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.2] — 2026-11-10
+
+### Added
+
+- The **DNS exit node** switch stores the user's intent: it can be turned on before the exit publishes a resolver, and the server is added to the DNS list as soon as the status API reports it. The switch is always active, and its subtitle no longer shows the address.
+- The switch owns its resolver only while it is on: a server added by hand while the switch is off stays an ordinary entry without a lock, and the switch does not turn itself on.
+- Turning the switch on still selects Yggdrasil DNS when the system resolver was selected, but only when the resolver is known; without one the DNS mode is left alone.
+
+### Changed
+
+- The resolver of the active exit node is added to the tunnel list as soon as the status API reports it, even when the switch was already on. The stored switch state is migrated from the old derived value on the first start, so an upgrade keeps the previous choice.
+
 ## [1.5.1] — 2026-11-09
 
 ### Fixed

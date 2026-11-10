@@ -1088,6 +1088,7 @@ class AppSettings {
     this.exitActiveId = '',
     this.exitFallbackDirect = true,
     this.exitLocalDns = true,
+    this.exitDnsEnabled = false,
     this.exitUdp = true,
     this.exitDnsServers = defaultExitDnsServers,
     this.exitLocalDnsServers = const [],
@@ -1111,6 +1112,11 @@ class AppSettings {
   final String exitActiveId;
   final bool exitFallbackDirect;
   final bool exitLocalDns;
+
+  /// The "DNS exit node" switch. It is the user's intent, not the presence of
+  /// a resolver: the switch can be turned on before the exit publishes one,
+  /// and the resolver is then added when the status API reports it.
+  final bool exitDnsEnabled;
 
   /// Carry DNS and QUIC over the exit as well. Turning it off drops public UDP
   /// instead of letting it leave the phone around the exit.
@@ -1193,6 +1199,7 @@ class AppSettings {
     exitActiveId: (json['exitActiveId'] as String?) ?? '',
     exitFallbackDirect: (json['exitFallbackDirect'] as bool?) ?? true,
     exitLocalDns: (json['exitLocalDns'] as bool?) ?? true,
+    exitDnsEnabled: (json['exitDnsEnabled'] as bool?) ?? false,
     exitUdp: (json['exitUdp'] as bool?) ?? true,
     exitDnsServers: _serverList(json, 'exitDnsServers').isEmpty
         ? defaultExitDnsServers
@@ -1219,6 +1226,7 @@ class AppSettings {
     'exitActiveId': exitActiveId,
     'exitFallbackDirect': exitFallbackDirect,
     'exitLocalDns': exitLocalDns,
+    'exitDnsEnabled': exitDnsEnabled,
     'exitUdp': exitUdp,
     'exitDnsServers': exitDnsServers,
     'exitLocalDnsServers': exitLocalDnsServers,
@@ -1243,6 +1251,7 @@ class AppSettings {
     String? exitActiveId,
     bool? exitFallbackDirect,
     bool? exitLocalDns,
+    bool? exitDnsEnabled,
     bool? exitUdp,
     List<String>? exitDnsServers,
     List<String>? exitLocalDnsServers,
@@ -1265,6 +1274,7 @@ class AppSettings {
     exitActiveId: exitActiveId ?? this.exitActiveId,
     exitFallbackDirect: exitFallbackDirect ?? this.exitFallbackDirect,
     exitLocalDns: exitLocalDns ?? this.exitLocalDns,
+    exitDnsEnabled: exitDnsEnabled ?? this.exitDnsEnabled,
     exitUdp: exitUdp ?? this.exitUdp,
     exitDnsServers: exitDnsServers ?? this.exitDnsServers,
     exitLocalDnsServers: exitLocalDnsServers ?? this.exitLocalDnsServers,

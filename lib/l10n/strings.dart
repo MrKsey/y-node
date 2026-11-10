@@ -430,8 +430,10 @@ class L10n {
         'Names like router.lan or nas.local are sent to the DNS of the real '
         'network instead of the exit',
     'exitDnsNode': 'DNS exit node',
-    'exitDnsNodeHint': 'Use the resolver the exit node publishes: %s',
-    'exitDnsNodeUnavailable': 'No exit node with a DNS server is selected',
+    'exitDnsNodeHint':
+        'Use the resolver the exit node publishes for its clients',
+    'exitDnsNodeUnavailable':
+        'The active exit node does not publish a resolver',
     'exitDnsAdvertised': 'DNS %s',
     'exitDnsTitle': 'Exit DNS',
     'exitDnsHint':

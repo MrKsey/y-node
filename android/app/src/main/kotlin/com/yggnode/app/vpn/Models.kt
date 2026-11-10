@@ -176,6 +176,7 @@ data class Settings(
     val exitActiveId: String = "",
     val exitFallbackDirect: Boolean = true,
     val exitLocalDns: Boolean = true,
+    val exitDnsEnabled: Boolean = false,
     val exitUdp: Boolean = true,
     val exitDnsServers: List<String> = DEFAULT_EXIT_DNS,
     val exitLocalDnsServers: List<String> = emptyList(),
@@ -234,6 +235,7 @@ data class Settings(
         put("exitActiveId", exitActiveId)
         put("exitFallbackDirect", exitFallbackDirect)
         put("exitLocalDns", exitLocalDns)
+        put("exitDnsEnabled", exitDnsEnabled)
         put("exitUdp", exitUdp)
         put("exitDnsServers", JSONArray(exitDnsServers))
         put("exitLocalDnsServers", JSONArray(exitLocalDnsServers))
@@ -283,6 +285,7 @@ data class Settings(
                         d.exitFallbackDirect,
                     ),
                     exitLocalDns = o.optBoolean("exitLocalDns", d.exitLocalDns),
+                    exitDnsEnabled = o.optBoolean("exitDnsEnabled", d.exitDnsEnabled),
                     exitUdp = o.optBoolean("exitUdp", d.exitUdp),
                     exitDnsServers = o.optJSONArray("exitDnsServers")?.let { arr ->
                         buildList { for (i in 0 until arr.length()) add(arr.optString(i)) }

@@ -176,11 +176,13 @@ void main() {
       List<ExitProfile> profiles = const [exit],
       String activeId = '202::1:1080',
       String dnsMode = DnsMode.yggdrasil,
+      bool exitDnsEnabled = false,
     }) => AppState()
       ..settings = AppSettings(
         dnsMode: dnsMode,
         exitProfiles: profiles,
         exitActiveId: activeId,
+        exitDnsEnabled: exitDnsEnabled,
       );
 
     test('is offered in the available list with its note', () {
@@ -212,6 +214,53 @@ void main() {
       expect(state.exitDnsServer, '202::2');
       expect(state.settings.dnsServers, contains('202::2'));
       expect(state.settings.dnsServers, isNot(contains('202::1')));
+    });
+
+    test('the switch stores the intent without a published resolver', () async {
+      const plain = ExitProfile(
+        id: '202::3:1080',
+        name: 'Plain',
+        address: '202::3',
+      );
+      final state = stateWith(profiles: const [plain], activeId: '202::3:1080');
+      await state.setExitDns(true);
+      expect(state.settings.exitDnsEnabled, isTrue);
+      expect(state.settings.dnsServers, isNot(contains('202::3')));
+      expect(state.settings.dnsMode, DnsMode.yggdrasil);
+
+      // The status API reports a resolver later: the switch adds it at once.
+      await state.saveExitProfiles(const [
+        ExitProfile(
+          id: '202::3:1080',
+          name: 'Plain',
+          address: '202::3',
+          dnsAddress: '202::3',
+        ),
+      ]);
+      expect(state.settings.dnsServers, contains('202::3'));
+      expect(state.exitDnsInUse, isTrue);
+    });
+
+    test('the switch keeps the system DNS without a resolver', () async {
+      const plain = ExitProfile(
+        id: '202::3:1080',
+        name: 'Plain',
+        address: '202::3',
+      );
+      final state = stateWith(
+        profiles: const [plain],
+        activeId: '202::3:1080',
+        dnsMode: DnsMode.system,
+      );
+      await state.setExitDns(true);
+      expect(state.settings.dnsMode, DnsMode.system);
+    });
+
+    test('a resolver added by hand stays ordinary while the switch is off', () {
+      final state = stateWith();
+      state.settings = state.settings.copyWith(dnsServers: ['202::1']);
+      expect(state.exitDnsInUse, isFalse);
+      expect(state.isExitDnsServer('202::1'), isFalse);
     });
 
     test('removing the profile removes its resolver', () async {
@@ -328,6 +377,7 @@ void main() {
       exitFallbackDirect: false,
       exitLocalDns: false,
       exitUdp: false,
+      exitDnsEnabled: true,
     );
     final parsed = AppSettings.fromJson(settings.toJson());
     expect(parsed.exitEnabled, isTrue);
@@ -336,6 +386,7 @@ void main() {
     expect(parsed.exitFallbackDirect, isFalse);
     expect(parsed.exitLocalDns, isFalse);
     expect(parsed.exitUdp, isFalse);
+    expect(parsed.exitDnsEnabled, isTrue);
     expect(parsed.exitActiveProfile?.name, 'b');
   });
 

@@ -212,19 +212,17 @@ class _ExitProfilesScreenState extends State<ExitProfilesScreen> {
               // The resolver of the exit node is a Yggdrasil DNS server the
               // server publishes for its clients. The switch puts it into the
               // DNS list; the list then locks the entry instead of offering a
-              // remove button, because this switch owns it.
+              // remove button, because this switch owns it. The switch can be
+              // turned on before the exit reports a resolver: the entry is
+              // added as soon as the status API carries one.
               SwitchListTile(
-                value: state.exitDnsInUse,
-                onChanged: state.exitDnsProfile == null
-                    ? null
-                    : state.setExitDns,
+                value: settings.exitDnsEnabled,
+                onChanged: state.setExitDns,
                 title: Text(l10n.t('exitDnsNode')),
                 subtitle: Text(
                   state.exitDnsProfile == null
                       ? l10n.t('exitDnsNodeUnavailable')
-                      : l10n.tf('exitDnsNodeHint', [
-                          state.exitDnsProfile!.dnsServer,
-                        ]),
+                      : l10n.t('exitDnsNodeHint'),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),

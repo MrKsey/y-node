@@ -356,15 +356,18 @@ class AppState extends ChangeNotifier {
   /// True when the resolver of the active exit node is in the tunnel list and
   /// the app actually uses that list.
   bool get exitDnsInUse =>
+      settings.exitDnsEnabled &&
       settings.dnsMode != DnsMode.system &&
       exitDnsServer.isNotEmpty &&
       settings.dnsServers.contains(exitDnsServer);
 
-  /// True when [server] is the resolver of the active exit node. Such an entry
-  /// belongs to the "DNS exit node" switch, so the DNS list shows a lock
-  /// instead of a remove button.
+  /// True when [server] is the resolver the "DNS exit node" switch manages.
+  /// A resolver the user added by hand while the switch was off is an ordinary
+  /// entry: it can be removed without touching the switch.
   bool isExitDnsServer(String server) =>
-      exitDnsServer.isNotEmpty && server == exitDnsServer;
+      settings.exitDnsEnabled &&
+      exitDnsServer.isNotEmpty &&
+      server == exitDnsServer;
 
   /// True when [server] is published by any exit profile. The DNS list uses
   /// this to mark the row as an exit-node server, not a wiki one.
@@ -409,7 +412,7 @@ class AppState extends ChangeNotifier {
       }
       await Native.write(_kLogDefaultOff, '1');
     }
-    final migrated = _migrateDns(settings);
+    final migrated = _migrateExitDns(_migrateDns(settings));
     if (migrated != settings) {
       settings = migrated;
       await Native.write(_kSettings, _encode(settings.toJson()));
@@ -1140,7 +1143,10 @@ class AppState extends ChangeNotifier {
       next.add(updated);
     }
     if (!changed) return;
-    unawaited(saveSettings(settings.copyWith(exitProfiles: next)));
+    // The same call keeps the DNS list in step with the new resolver: with the
+    // "DNS exit node" switch on, a profile that learned its resolver from the
+    // status API is added to the list at once.
+    unawaited(saveExitProfiles(next));
   }
 
   /// True when the running tunnel was created with a different split-tunnel
@@ -1194,26 +1200,33 @@ class AppState extends ChangeNotifier {
   /// Adds or removes the resolver published by the active exit node. Turning
   /// the switch on also selects Yggdrasil DNS: the system resolver would ignore
   /// the list. The server is checked right away when the tunnel is up.
+  ///
+  /// The switch stores the user's intent even when the exit node does not
+  /// publish a resolver yet: the resolver is added as soon as the status API
+  /// reports one, and turning the switch off removes it again. Without a
+  /// resolver nothing else changes.
   Future<void> setExitDns(bool value) async {
-    final profile = exitDnsProfile;
-    if (profile == null) return;
-    final server = profile.dnsServer;
+    final server = exitDnsServer;
     final servers = [...settings.dnsServers];
-    if (value) {
-      if (!servers.contains(server)) servers.add(server);
-    } else {
-      servers.remove(server);
+    if (server.isNotEmpty) {
+      if (value) {
+        if (!servers.contains(server)) servers.add(server);
+      } else {
+        servers.remove(server);
+      }
     }
-    final modeChanged = value && settings.dnsMode == DnsMode.system;
+    final modeChanged =
+        value && server.isNotEmpty && settings.dnsMode == DnsMode.system;
     await saveSettings(
       settings.copyWith(
+        exitDnsEnabled: value,
         dnsServers: servers,
         dnsMode: modeChanged ? DnsMode.yggdrasil : settings.dnsMode,
       ),
     );
     if (modeChanged) {
       resetDnsVerification();
-    } else if (value) {
+    } else if (value && server.isNotEmpty) {
       unawaited(checkDnsServer(server));
     }
   }
@@ -1243,7 +1256,11 @@ class AppState extends ChangeNotifier {
     // switch put in the list is replaced with the resolver of the new node.
     final previous = exitDnsServer;
     final servers = [...settings.dnsServers];
-    if (previous.isNotEmpty && servers.contains(previous)) {
+    if (settings.exitDnsEnabled) {
+      if (previous.isNotEmpty) servers.remove(previous);
+      final dns = next.first.dnsServer;
+      if (dns.isNotEmpty && !servers.contains(dns)) servers.add(dns);
+    } else if (previous.isNotEmpty && servers.contains(previous)) {
       servers.remove(previous);
       final dns = next.first.dnsServer;
       if (dns.isNotEmpty) servers.add(dns);
@@ -1271,8 +1288,11 @@ class AppState extends ChangeNotifier {
     final before = _exitDnsAddresses(settings.exitProfiles);
     final after = _exitDnsAddresses(profiles);
     final previous = exitDnsServer;
+    // The switch owns its resolver even before it appears in the list: a
+    // profile that learns its resolver from the status API is added here.
     final hadExitDns =
-        previous.isNotEmpty && settings.dnsServers.contains(previous);
+        settings.exitDnsEnabled ||
+        (previous.isNotEmpty && settings.dnsServers.contains(previous));
     final servers = [
       for (final server in settings.dnsServers)
         if (!before.contains(server) || after.contains(server)) server,
@@ -2613,6 +2633,18 @@ class AppState extends ChangeNotifier {
       return next.copyWith(dnsServers: AppSettings.defaultDnsServers);
     }
     return next;
+  }
+
+  /// Before 1.5.2 the "DNS exit node" switch had no stored flag: its value was
+  /// derived from the tunnel list, and a resolver of the active exit profile in
+  /// that list meant the switch was on. Keep that state after the upgrade.
+  /// Turning the switch off removes the entry, so the guess does not repeat.
+  static AppSettings _migrateExitDns(AppSettings value) {
+    if (value.exitDnsEnabled || value.dnsMode == DnsMode.system) return value;
+    final profile = value.exitActiveProfile;
+    if (profile == null || !profile.hasDns) return value;
+    if (!value.dnsServers.contains(profile.dnsServer)) return value;
+    return value.copyWith(exitDnsEnabled: true);
   }
 
   /// Country display name.
