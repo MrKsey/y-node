@@ -511,6 +511,12 @@ class AppState extends ChangeNotifier {
     _lastSignature = signature;
     _peerStatusVersion++;
     _publishTraffic(next);
+    // The token and the resolver the bridge learned are stored in the profile
+    // before the "did anything change" test: a token is a credential, not a
+    // value on screen, so it may be the only field that moved in the answer.
+    // Leaving this below the early return dropped a rotated token and the app
+    // kept showing the previous one for hours.
+    _adoptExitStatus(next.exit);
     // A stats tick that only moved the byte counters is not a state change:
     // nothing the screens show has moved, so they must not be rebuilt.
     if (!changed) return;
@@ -520,8 +526,6 @@ class AppState extends ChangeNotifier {
       unawaited(_resolveExitCountries());
     }
     if (next.exit.updatedAt > 0) _exitChecked = null;
-    // The bridge publishes a token it learned; keep it in the profile.
-    _adoptExitStatus(next.exit);
     // A manual check belongs to the session it ran in: while the tunnel is
     // down or reconnecting the live snapshot is the only source of truth.
     if (!next.isConnected) {
@@ -664,6 +668,7 @@ class AppState extends ChangeNotifier {
     for (final profile in value.exit.profiles)
       '${profile.id}|${profile.name}|${profile.address}|${profile.state}|'
           '${profile.latencyMs}|${profile.error}|${profile.checkedAt}|'
+          '${profile.token}|'
           '${profile.connections}|${profile.refused}|${profile.quotaRefused}|'
           '${profile.maxConns}|${profile.udpAssociations}|'
           '${profile.maxUdpAssociations}|'

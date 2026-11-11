@@ -148,6 +148,48 @@ void main() {
     expect(profile.token, 'api-token');
   });
 
+  // The exit rotates the token when the operator issues a new one and the
+  // bridge fetches it on the next status poll. The token may be the only field
+  // that moved in the answer, so it has to be stored before the "nothing
+  // changed" early return; otherwise the app keeps showing the revoked one.
+  test('a rotated API token is stored in the profile', () {
+    final state = AppState();
+    state.settings = state.settings.copyWith(
+      exitProfiles: const [
+        ExitProfile(id: 'e', name: 'exit', address: '200::1', token: 'old'),
+      ],
+    );
+
+    VpnSnapshot withToken(String token, {required int checkedAt}) =>
+        VpnSnapshot(
+          status: 'connected',
+          exit: ExitStatus(
+            enabled: true,
+            state: 'online',
+            activeId: 'e',
+            updatedAt: 1,
+            profiles: [
+              ExitProfileStatus(
+                id: 'e',
+                name: 'exit',
+                address: '200::1',
+                state: 'online',
+                token: token,
+                authenticated: true,
+                checkedAt: checkedAt,
+                maxConns: 64,
+              ),
+            ],
+          ),
+        );
+
+    state.applySnapshotForTest(withToken('', checkedAt: 5));
+    // Same checkedAt: the token alone must still be adopted.
+    state.applySnapshotForTest(withToken('new', checkedAt: 5));
+
+    expect(state.settings.exitProfiles.single.token, 'new');
+  });
+
   // The UDP association and the self-checks carry the name the bridge knew at
   // the moment they were created. A rename must still show the current name,
   // because the profile id never changes.
