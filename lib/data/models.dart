@@ -240,7 +240,8 @@ class ProbeResult {
   );
 }
 
-/// One exit node known to the app. The list order is the failover order.
+/// One exit node known to the app. Only the selected profile carries public
+/// traffic; the rest of the list waits for a switch.
 class ExitProfile {
   const ExitProfile({
     required this.id,

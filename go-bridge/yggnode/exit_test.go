@@ -65,7 +65,10 @@ func TestExitStatusReportsSuspension(t *testing.T) {
 	}
 }
 
-func TestExitOrderedPutsActiveFirst(t *testing.T) {
+// Only the selected profile carries traffic: the other configured nodes wait
+// for a switch and are not a failover chain, so a node the user did not pick
+// never sees the traffic.
+func TestExitUsesOnlyTheActiveProfile(t *testing.T) {
 	manager := &exitManager{
 		cfg: exitConfig{
 			Profiles: []ExitProfile{
@@ -76,9 +79,28 @@ func TestExitOrderedPutsActiveFirst(t *testing.T) {
 			ActiveID: "b",
 		},
 	}
-	ordered := manager.ordered()
-	if len(ordered) != 3 || ordered[0].ID != "b" || ordered[1].ID != "a" || ordered[2].ID != "c" {
-		t.Fatalf("unexpected order: %+v", ordered)
+	active := manager.activeProfiles()
+	if len(active) != 1 || active[0].ID != "b" {
+		t.Fatalf("active profiles = %+v, want only b", active)
+	}
+}
+
+// A stored id that matches no profile (an old configuration, or a profile
+// removed while the tunnel was up) falls back to the first one, which is what
+// the app shows as active too.
+func TestExitActiveFallsBackToTheFirstProfile(t *testing.T) {
+	manager := &exitManager{
+		cfg: exitConfig{
+			Profiles: []ExitProfile{{ID: "a"}, {ID: "b"}},
+			ActiveID: "gone",
+		},
+	}
+	active := manager.activeProfiles()
+	if len(active) != 1 || active[0].ID != "a" {
+		t.Fatalf("active profiles = %+v, want only a", active)
+	}
+	if active := (&exitManager{}).activeProfiles(); active != nil {
+		t.Fatalf("an exit without profiles returned %+v", active)
 	}
 }
 
@@ -137,22 +159,33 @@ func TestExitCarriesIPv6FollowsExitCapabilities(t *testing.T) {
 	}
 }
 
-// One profile with a working IPv6 path keeps the tunnel carrying IPv6 even when
-// another profile reports that its provider is broken.
-func TestExitCarriesIPv6WhenAnyProfileWorks(t *testing.T) {
-	manager, err := newExitManager(`{"enabled":true,"profiles":[
+// IPv6 follows the selected profile only. Another node with a working IPv6
+// path must not keep the tunnel sending IPv6: that traffic would leave through
+// a node the user did not pick.
+func TestExitCarriesIPv6FollowsTheActiveProfile(t *testing.T) {
+	const config = `{"enabled":true,"activeId":"200::2:1080","profiles":[
 		{"address":"200::1","socksPort":1080,"apiPort":1081},
-		{"address":"200::2","socksPort":1080,"apiPort":1081}]}`, nil, nil, &goLogger{})
+		{"address":"200::2","socksPort":1080,"apiPort":1081}]}`
+	manager, err := newExitManager(config, nil, nil, &goLogger{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager.markCapabilities("200::1:1080", &exitAPICapabilities{IPv6: false, IPv6State: "none"})
-	if !manager.carriesIPv6() {
-		t.Fatal("an unpolled profile must count as a possible IPv6 path")
-	}
-	manager.markCapabilities("200::2:1080", &exitAPICapabilities{IPv6: false, IPv6State: "broken"})
+	// The selected node reports that it has no IPv6, while the other one can
+	// carry it: the tunnel must stop sending IPv6 anyway.
+	manager.markCapabilities("200::1:1080", &exitAPICapabilities{IPv6: true, IPv6State: "ok"})
+	manager.markCapabilities("200::2:1080", &exitAPICapabilities{IPv6: false, IPv6State: "none"})
 	if manager.carriesIPv6() {
-		t.Fatal("IPv6 was carried although no profile can reach it")
+		t.Fatal("IPv6 was carried although the selected profile has none")
+	}
+	// A selected profile whose capability is unknown keeps the old behaviour:
+	// it may carry IPv6, and a working path must not be disabled.
+	unknown, err := newExitManager(config, nil, nil, &goLogger{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknown.markCapabilities("200::1:1080", &exitAPICapabilities{IPv6: false, IPv6State: "none"})
+	if !unknown.carriesIPv6() {
+		t.Fatal("an unpolled active profile must count as a possible IPv6 path")
 	}
 }
 

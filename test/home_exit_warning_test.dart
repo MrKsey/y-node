@@ -96,6 +96,65 @@ void main() {
 
     expect(find.byIcon(Icons.priority_high_rounded), findsNothing);
   });
+
+  /// With several configured nodes only the selected one is the exit the
+  /// tunnel uses: its flag is on the hero link and only its row carries the
+  /// lock. The other node is a stored profile, not a failover target.
+  testWidgets('the flag and the lock follow the selected node', (tester) async {
+    const first = ExitProfile(
+      id: 'exit-1',
+      name: 'First exit',
+      address: '200::1',
+      peer: 'tls://203.0.113.10:13338?key=a',
+    );
+    const second = ExitProfile(
+      id: 'exit-2',
+      name: 'Second exit',
+      address: '200::2',
+      peer: 'tls://203.0.113.11:13338?key=b',
+    );
+    final state = AppState();
+    state.settings = const AppSettings(
+      exitEnabled: true,
+      exitProfiles: [first, second],
+      exitActiveId: 'exit-2',
+    );
+    state.peers = const [
+      PeerEntry(
+        uri: 'tls://203.0.113.10:13338?key=a',
+        pinned: true,
+        country: 'finland',
+      ),
+      PeerEntry(
+        uri: 'tls://203.0.113.11:13338?key=b',
+        pinned: true,
+        country: 'germany',
+      ),
+    ];
+    state.snapshot = VpnSnapshot(
+      status: 'connected',
+      exit: const ExitStatus(
+        enabled: true,
+        state: 'online',
+        activeId: 'exit-2',
+        profiles: [
+          ExitProfileStatus(id: 'exit-1', name: 'First exit'),
+          ExitProfileStatus(id: 'exit-2', name: 'Second exit'),
+        ],
+        udp: ExitUdpStatus(enabled: true, state: 'idle'),
+        updatedAt: 1,
+      ),
+    );
+
+    await pumpHome(tester, state);
+
+    // The German flag is drawn twice: on the hero link and in the row of the
+    // selected node. The Finnish one only belongs to the stored profile.
+    expect(find.text('🇩🇪'), findsNWidgets(2));
+    expect(find.text('🇫🇮'), findsOneWidget);
+    // One lock on the hero icon and one on the row of the selected node.
+    expect(find.byIcon(Icons.lock_rounded), findsNWidgets(2));
+  });
 }
 
 void _noop() {}

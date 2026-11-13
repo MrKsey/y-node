@@ -555,9 +555,9 @@ func (n *Node) buildForwarder(settings tunSettings, rawExit string) (*tun2socks,
 }
 
 // SetExitConfig applies a new exit configuration. When the forwarder is
-// running it is rebuilt with the new profile list, so a failover order change
-// takes effect immediately; existing forwarded connections are reset and the
-// apps reconnect.
+// running it is rebuilt with the new profile list, so a change of the selected
+// node takes effect immediately; existing forwarded connections are reset and
+// the apps reconnect.
 func (n *Node) SetExitConfig(exitConfigJSON string) error {
 	if _, err := parseExitConfig(exitConfigJSON); err != nil {
 		return err

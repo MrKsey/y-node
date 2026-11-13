@@ -78,8 +78,10 @@ class AppState extends ChangeNotifier {
   /// How many candidates get the cheap TCP pass before the protocol probes.
   static const int _probePoolSize = 160;
 
-  /// Hosts whose exit country was already looked up in this session.
-  final Set<String> _exitGeoDone = {};
+  /// The country of every exit server looked up in this session. Switching the
+  /// selected node drops the pinned peer of the old one, so the answer is kept
+  /// here and the flag comes back at once when that node is selected again.
+  final Map<String, ({String country, String city})> _exitGeo = {};
 
   AppSettings settings = const AppSettings();
   Identity? identity;
@@ -1273,6 +1275,15 @@ class AppState extends ChangeNotifier {
     await saveSettings(
       settings.copyWith(exitActiveId: id, dnsServers: servers),
     );
+    // The selected node is the only exit the tunnel uses: the pinned peer and
+    // the forwarder follow the switch at once, so public traffic moves to the
+    // new node without waiting for a reconnect.
+    await _syncExitPeers(settings.exitProfiles);
+    unawaited(_resolveExitCountries());
+    if (await applyExitConfig()) {
+      _exitChecked = await Native.exitStatus() ?? _exitChecked;
+      notifyListeners();
+    }
   }
 
   /// The resolvers the exit profiles publish. Used to keep the tunnel list in
@@ -1342,34 +1353,46 @@ class AppState extends ChangeNotifier {
     return before.isEmpty || current;
   }
 
-  /// Keeps the peer list in step with the exit profiles. Every profile that
-  /// carries a peering URI gets one pinned peer: the tunnel then reaches the
-  /// exit node directly instead of hoping that the public mesh has a route to
-  /// it. The pinned entry is never removed by the supervisor or by "Clear".
+  /// Keeps the peer list in step with the exit profiles. Only the profile that
+  /// is selected gets a pinned peer: the tunnel talks to the exit node it
+  /// actually uses, and a node that is not selected must not be dialled at all.
+  /// The pinned entry is never removed by the supervisor or by "Clear".
   Future<void> _syncExitPeers(List<ExitProfile> profiles) async {
+    final active = _activeExitProfile(profiles);
     final wanted = <String>{};
-    for (final profile in profiles) {
-      final uri = profile.peer.trim();
-      if (uri.isNotEmpty) wanted.add(uri);
-    }
-    final wantedHosts = {for (final uri in wanted) _hostOf(uri)};
+    final uri = active?.peer.trim() ?? '';
+    if (uri.isNotEmpty) wanted.add(uri);
+    // Every exit host stays out of the public pool: the node reaches those
+    // servers through the pinned link, not as ordinary mesh peers.
+    final exitHosts = {
+      for (final profile in profiles)
+        if (profile.peer.trim().isNotEmpty) _hostOf(profile.peer),
+    };
 
     final seen = <String>{};
     final pinned = <PeerEntry>[];
     final others = <PeerEntry>[];
     for (final peer in peers) {
       if (peer.pinned) {
-        if (wanted.contains(peer.uri) && seen.add(peer.uri)) {
-          pinned.add(peer);
-        }
+        if (!wanted.contains(peer.uri) || !seen.add(peer.uri)) continue;
+        final geo = _exitGeo[_hostOf(peer.uri)];
+        pinned.add(
+          peer.country.isEmpty && geo != null
+              ? peer.copyWith(country: geo.country, city: geo.city)
+              : peer,
+        );
       } else {
         others.add(peer);
       }
     }
-    for (final profile in profiles) {
-      final uri = profile.peer.trim();
-      if (uri.isEmpty || !seen.add(uri)) continue;
-      final entry = PeerEntry(uri: uri, pinned: true);
+    if (uri.isNotEmpty && seen.add(uri)) {
+      final geo = _exitGeo[_hostOf(uri)];
+      final entry = PeerEntry(
+        uri: uri,
+        country: geo?.country ?? '',
+        city: geo?.city ?? '',
+        pinned: true,
+      );
       // A manually added copy of the same server is replaced, so the pinned
       // URI (with the key of the exit node) is the one that gets dialled.
       final index = others.indexWhere(
@@ -1378,14 +1401,16 @@ class AppState extends ChangeNotifier {
       if (index >= 0) others.removeAt(index);
       pinned.add(entry);
     }
-    // The pinned exit peers come first: the node dials the direct link before
+    // The pinned exit peer comes first: the node dials the direct link before
     // the public pool, and the list shows it at the top.
     final next = [...pinned, ...others];
 
     var same = next.length == peers.length;
     if (same) {
       for (var i = 0; i < next.length; i++) {
-        if (next[i].uri != peers[i].uri || next[i].pinned != peers[i].pinned) {
+        if (next[i].uri != peers[i].uri ||
+            next[i].pinned != peers[i].pinned ||
+            next[i].country != peers[i].country) {
           same = false;
           break;
         }
@@ -1396,12 +1421,22 @@ class AppState extends ChangeNotifier {
     peers = next;
     pool = [
       for (final peer in pool)
-        if (!wantedHosts.contains(_hostOf(peer.uri))) peer,
+        if (!exitHosts.contains(_hostOf(peer.uri))) peer,
     ];
     await _persistPeers();
   }
 
-  /// Fills in the country of the pinned exit peers.
+  /// The profile the tunnel uses: the stored selection, or the first profile
+  /// when the id matches none. The bridge applies the same fallback.
+  ExitProfile? _activeExitProfile(List<ExitProfile> profiles) {
+    if (profiles.isEmpty) return null;
+    for (final profile in profiles) {
+      if (profile.id == settings.exitActiveId) return profile;
+    }
+    return profiles.first;
+  }
+
+  /// Fills in the country of the pinned exit peer.
   ///
   /// The public catalogue carries the country of every peer it lists, but the
   /// exit node is not in that list: its address comes from the invite. The
@@ -1412,7 +1447,7 @@ class AppState extends ChangeNotifier {
       for (final peer in peers)
         if (peer.pinned &&
             peer.country.isEmpty &&
-            !_exitGeoDone.contains(_hostOf(peer.uri)))
+            !_exitGeo.containsKey(_hostOf(peer.uri)))
           peer,
     ];
     if (pending.isEmpty) return;
@@ -1428,7 +1463,7 @@ class AppState extends ChangeNotifier {
       if (geo == null || geo.countrySlug.isEmpty) continue;
       // Only a success is remembered: an exit node added while the network was
       // down gets another try instead of a blank flag for the whole session.
-      _exitGeoDone.add(host);
+      _exitGeo[host] = (country: geo.countrySlug, city: geo.city);
       peers = [
         for (final item in peers)
           if (item.uri == peer.uri)
@@ -1493,10 +1528,14 @@ class AppState extends ChangeNotifier {
 
   /// Rebuilds the forwarder with the stored exit configuration. Needed before a
   /// registration: the running bridge only knows the profiles from the last
-  /// connect.
-  Future<void> applyExitConfig() async {
-    if (!snapshot.isConnected) return;
-    await Native.applyExitConfig();
+  /// connect. Returns true when a running forwarder was rebuilt.
+  Future<bool> applyExitConfig() async {
+    if (!snapshot.isConnected) return false;
+    final applied = await Native.applyExitConfig();
+    // The rebuilt forwarder carries the stored configuration, so the warning
+    // about pending exit changes must go away without a full reconnect.
+    if (applied) appliedExitSignature = _exitSignatureOf(settings);
+    return applied;
   }
 
   /// Redeems an invite on [profile]. The profile is stored first so the bridge

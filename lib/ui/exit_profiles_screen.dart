@@ -12,7 +12,7 @@ import 'exit_qr_screen.dart';
 import 'status_ui.dart';
 import 'widgets.dart';
 
-/// The failover list of exit nodes: add, edit, reorder, register and check.
+/// The list of exit nodes: add, edit, reorder, select, register and check.
 class ExitProfilesScreen extends StatefulWidget {
   const ExitProfilesScreen({super.key});
 

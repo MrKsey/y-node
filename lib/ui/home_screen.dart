@@ -47,10 +47,14 @@ class HomeScreen extends StatelessWidget {
         (exitStatus?.suspended ?? false) ||
         (exitStatus?.quota?.exhausted ?? false);
     PeerEntry? exitPeer;
-    for (final peer in state.peers) {
-      if (peer.pinned) {
-        exitPeer = peer;
-        break;
+    final activePeer = state.settings.exitActiveProfile?.peer.trim() ?? '';
+    if (activePeer.isNotEmpty) {
+      final key = peerKeyOf(activePeer);
+      for (final peer in state.peers) {
+        if (peer.pinned && peerKeyOf(peer.uri) == key) {
+          exitPeer = peer;
+          break;
+        }
       }
     }
 
@@ -142,7 +146,7 @@ class HomeScreen extends StatelessWidget {
                     _PeerRow(
                       peer: peer,
                       status: state.statusByUri[peer.uri],
-                      highlight: peer.pinned && state.exitInUse,
+                      highlight: state.exitInUse && peer.uri == exitPeer?.uri,
                       onTap: () => _showPeerDetails(
                         context,
                         peer,

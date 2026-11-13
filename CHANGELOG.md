@@ -4,6 +4,15 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.4] — 2026-11-13
+
+### Fixed
+
+- With several exit nodes configured, only the selected one is used. The Go bridge no longer tries the other profiles as a failover chain, so public TCP, UDP and DNS never leave through a node the user did not pick.
+- IPv6 follows the selected profile only. An unselected node that can carry IPv6 no longer keeps IPv6 enabled, so a selected node without IPv6 stops IPv6 traffic instead of sending it through another exit.
+- The exit icon on the tunnel screen shows the flag of the selected node, not the first pinned peer, and only that node is marked with the lock in the peer list.
+- Only the selected profile gets a pinned exit peer. Switching the node moves the pinned link and rebuilds the forwarder at once, without waiting for a reconnect.
+
 ## [1.5.3] — 2026-11-11
 
 ### Fixed

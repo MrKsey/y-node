@@ -407,55 +407,64 @@ func (m *exitManager) markCapabilities(id string, caps *exitAPICapabilities) {
 	m.ipv6Path.Store(allowed)
 }
 
-// ipv6PathLocked answers whether any profile might still carry IPv6. A profile
-// whose capability is unknown counts as usable: the tunnel must not stop IPv6
-// because one exit is old or was not polled yet. The caller holds m.mu.
+// ipv6PathLocked answers whether the selected profile carries IPv6. Only that
+// profile is asked: another node with a working IPv6 path must not keep the
+// tunnel sending IPv6, because that traffic would leave through a node the user
+// did not pick. A profile whose capability is unknown counts as usable, so the
+// tunnel does not stop IPv6 because its exit is old or was not polled yet. The
+// caller holds m.mu.
 func (m *exitManager) ipv6PathLocked() bool {
 	if !m.cfg.Enabled || len(m.cfg.Profiles) == 0 {
 		return false
 	}
-	for _, profile := range m.cfg.Profiles {
-		health := m.health[profile.ID]
-		if health == nil || health.IPv6Available == nil || *health.IPv6Available {
-			return true
-		}
+	profile, ok := m.activeProfileLocked()
+	if !ok {
+		return false
 	}
-	return false
+	health := m.health[profile.ID]
+	if health == nil || health.IPv6Available == nil {
+		return true
+	}
+	return *health.IPv6Available
 }
 
-// ordered returns the profiles in the order they should be tried: the active
-// one first, then the rest of the list in the order the user arranged.
-func (m *exitManager) ordered() []ExitProfile {
+// activeProfiles returns the profile the tunnel may use: exactly the one the
+// user selected. Only that node carries public traffic — the other configured
+// profiles wait for a switch instead of forming a failover chain, so a node the
+// user did not pick never sees the traffic.
+func (m *exitManager) activeProfiles() []ExitProfile {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if len(m.cfg.Profiles) == 0 {
-		return nil
+	if profile, ok := m.activeProfileLocked(); ok {
+		return []ExitProfile{profile}
 	}
-	out := make([]ExitProfile, 0, len(m.cfg.Profiles))
-	var active *ExitProfile
-	for i := range m.cfg.Profiles {
-		if m.cfg.Profiles[i].ID == m.cfg.ActiveID {
-			active = &m.cfg.Profiles[i]
-			break
-		}
-	}
-	if active != nil {
-		out = append(out, *active)
-	}
-	for _, profile := range m.cfg.Profiles {
-		if active != nil && profile.ID == active.ID {
-			continue
-		}
-		out = append(out, profile)
-	}
-	return out
+	return nil
 }
 
-// DialContext sends one upstream connection through the exit list. Private and
-// link-local destinations never leave the phone. TCP falls back to the direct
-// connection when the configuration allows it; UDP never does, because a leaked
-// datagram would bypass the user's choice, so a failed exit means a dropped
-// datagram and the app retries over TCP.
+// activeProfileLocked returns the selected profile. A stored id that matches no
+// profile (an old configuration, or a profile removed while the tunnel was up)
+// falls back to the first one, which is what the app shows as active too. The
+// caller holds m.mu.
+func (m *exitManager) activeProfileLocked() (ExitProfile, bool) {
+	if len(m.cfg.Profiles) == 0 {
+		return ExitProfile{}, false
+	}
+	for _, profile := range m.cfg.Profiles {
+		if profile.ID == m.cfg.ActiveID {
+			return profile, true
+		}
+	}
+	return m.cfg.Profiles[0], true
+}
+
+// DialContext sends one upstream connection through the selected exit. Private
+// and link-local destinations never leave the phone. TCP falls back to the
+// direct connection when the configuration allows it; UDP never does, because a
+// leaked datagram would bypass the user's choice, so a failed exit means a
+// dropped datagram and the app retries over TCP.
+//
+// Only the active profile is tried: another configured node is not a failover
+// target, so public traffic never leaves through a node the user did not pick.
 func (m *exitManager) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
 	switch network {
 	case "udp", "udp4", "udp6":
@@ -485,7 +494,7 @@ func (m *exitManager) DialContext(ctx context.Context, network, address string) 
 
 	var lastErr error
 	var destinationErr error
-	for _, profile := range m.ordered() {
+	for _, profile := range m.activeProfiles() {
 		if m.isDenied(profile.ID) {
 			continue
 		}
@@ -522,7 +531,7 @@ func (m *exitManager) DialContext(ctx context.Context, network, address string) 
 	}
 	cfg := m.config()
 	if cfg.FallbackDirect {
-		m.log.emit("warn", "no exit node is reachable, using the direct connection")
+		m.log.emit("warn", "the exit node is not reachable, using the direct connection")
 		return m.direct.DialContext(ctx, network, address)
 	}
 	if lastErr == nil {
@@ -661,11 +670,12 @@ func (m *exitManager) udpAssociation(ctx context.Context) (*socksUDPAssociation,
 	return nil, errUDPNoAssociation
 }
 
-// openUDPAssociation walks the failover list until one exit accepts the
-// association.
+// openUDPAssociation opens the association on the selected exit. Another
+// profile is never asked for a relay: UDP must follow the user's choice, not a
+// failover chain.
 func (m *exitManager) openUDPAssociation(ctx context.Context) (*socksUDPAssociation, error) {
 	var lastErr error
-	for _, profile := range m.ordered() {
+	for _, profile := range m.activeProfiles() {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}

@@ -277,6 +277,74 @@ void main() {
     });
   });
 
+  group('only the selected exit node is used', () {
+    const first = ExitProfile(
+      id: 'a',
+      name: 'a',
+      address: '200::1',
+      peer: 'tls://203.0.113.10:13338?key=a',
+    );
+    const second = ExitProfile(
+      id: 'b',
+      name: 'b',
+      address: '200::2',
+      peer: 'tls://203.0.113.11:13338?key=b',
+    );
+
+    test('a pinned peer is added for the selected profile only', () async {
+      final state = AppState()
+        ..settings = const AppSettings(
+          exitProfiles: [first, second],
+          exitActiveId: 'b',
+        );
+      await state.saveExitProfiles(const [first, second]);
+      final pinned = state.peers.where((peer) => peer.pinned).toList();
+      expect(pinned, hasLength(1));
+      expect(pinned.single.uri, second.peer);
+    });
+
+    test('switching the selection moves the pinned peer', () async {
+      final state = AppState()
+        ..settings = const AppSettings(
+          exitProfiles: [first, second],
+          exitActiveId: 'b',
+        );
+      await state.saveExitProfiles(const [first, second]);
+      await state.setExitActive('a');
+      final pinned = state.peers.where((peer) => peer.pinned).toList();
+      expect(pinned, hasLength(1));
+      expect(pinned.single.uri, first.peer);
+    });
+
+    test('the other exit host never stays in the public pool', () async {
+      final state = AppState()
+        ..settings = const AppSettings(
+          exitProfiles: [first, second],
+          exitActiveId: 'a',
+        )
+        ..pool = const [
+          PeerEntry(uri: 'tls://203.0.113.10:13338'),
+          PeerEntry(uri: 'tls://203.0.113.11:13338'),
+          PeerEntry(uri: 'tls://203.0.113.12:13338'),
+        ];
+      await state.saveExitProfiles(const [first, second]);
+      expect(state.pool.map((peer) => peer.uri), ['tls://203.0.113.12:13338']);
+    });
+
+    test('a stale pinned peer of a removed profile is dropped', () async {
+      final state = AppState()
+        ..settings = const AppSettings(exitProfiles: [first], exitActiveId: 'a')
+        ..peers = const [
+          PeerEntry(uri: 'tls://203.0.113.10:13338?key=a', pinned: true),
+          PeerEntry(uri: 'tls://203.0.113.11:13338?key=b', pinned: true),
+        ];
+      await state.saveExitProfiles(const [first]);
+      final pinned = state.peers.where((peer) => peer.pinned).toList();
+      expect(pinned, hasLength(1));
+      expect(pinned.single.uri, first.peer);
+    });
+  });
+
   test('a peer key drops the query the node does not report', () {
     expect(
       peerKeyOf('tls://160.20.158.195:13338?key=abcdef'),

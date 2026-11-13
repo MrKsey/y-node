@@ -150,15 +150,15 @@ func encodeIPv6Probe(result ipv6ProbeResult) string {
 	return string(raw)
 }
 
-// probeIPv6TCP opens a TLS connection to the literal IPv6 address through one
-// exit profile and reads the trace page. Profiles are tried in order, but a
-// failure never falls back to a direct connection: that would hide a broken
-// exit and could pass on a phone with an IPv6 uplink of its own.
+// probeIPv6TCP opens a TLS connection to the literal IPv6 address through the
+// selected exit profile and reads the trace page. A failure never falls back to
+// a direct connection or to another profile: that would hide a broken exit and
+// could pass on a phone with an IPv6 uplink of its own.
 func (m *exitManager) probeIPv6TCP(ctx context.Context) (ipv6ProbeStage, ExitProfile, error) {
 	ip := net.ParseIP(ipv6ProbeAddress)
 	stage := ipv6ProbeStage{Target: net.JoinHostPort(ipv6ProbeAddress, strconv.Itoa(ipv6ProbeTLSPort))}
 	var lastErr error
-	for _, profile := range m.ordered() {
+	for _, profile := range m.activeProfiles() {
 		if ctx.Err() != nil {
 			break
 		}

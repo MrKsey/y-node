@@ -314,8 +314,7 @@ class L10n {
     'exitCardConnectingHint': 'Bringing the exit node up',
     'exitCardOnlineHint': '%s · %s ms',
     'exitCardDirect': 'direct',
-    'exitCardDegradedHint':
-        'The active node is not answering; another one is used',
+    'exitCardDegradedHint': 'The selected node is not answering',
     'exitCardFallbackHint':
         'No exit node answered, public traffic uses the direct connection',
     'exitCardDeniedHint': 'The exit node does not allow this device',
@@ -348,8 +347,8 @@ class L10n {
         'device. Its quota, counters and token are kept.',
     'exitProfilesTitle': 'Exit nodes',
     'exitProfilesHint':
-        'Public traffic goes through the first working node. Drag a row to '
-        'change the failover order.',
+        'Public traffic goes through the selected node only. Tap another row '
+        'to switch the tunnel to it; the other nodes are never used.',
     'exitScanQr': 'Scan QR code',
     'exitImportLink': 'Import from link',
     'exitLinkTitle': 'Import an exit link',
@@ -412,7 +411,7 @@ class L10n {
     'exitActive': 'Active',
     'exitSetActive': 'Use this node',
     'exitRemoveTitle': 'Remove this exit node?',
-    'exitRemoveBody': '%s will be removed from the failover list.',
+    'exitRemoveBody': '%s will be removed from the exit node list.',
     'exitRemoved': 'Exit node removed',
     'exitSaved': 'Exit node saved',
     'exitRegistered': 'Registered with %s',
@@ -424,7 +423,8 @@ class L10n {
     'exitReconnectHint': 'Changes take effect after the tunnel reconnects',
     'exitFallbackDirect': 'Use the direct connection if the exit is down',
     'exitFallbackHint':
-        'When no exit answers, public traffic leaves the phone directly',
+        'When the selected node does not answer, public traffic leaves the '
+        'phone directly instead of being dropped',
     'exitLocalDns': 'Resolve local names on the local network',
     'exitLocalDnsHint':
         'Names like router.lan or nas.local are sent to the DNS of the real '
