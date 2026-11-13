@@ -158,11 +158,21 @@ class MainActivity : FlutterActivity() {
                 val pool = PeerEntry.listFromJson(call.argument<String>("pool"))
                 // The store is what a connect reads, so it is written here; the
                 // running supervisor is updated on the worker because that call
-                // goes into the Go node.
+                // goes into the Go node. The answer waits for the supervisor:
+                // the UI applies an exit switch right after this call, and a
+                // disconnect racing with it must not restore the old peer list.
                 prefs.savePeers(peers)
                 prefs.savePool(pool)
-                worker.execute { YggVpnService.applyPeers(peers, pool) }
-                result.success(null)
+                worker.execute {
+                    YggVpnService.applyPeers(peers, pool)
+                    mainHandler.post {
+                        try {
+                            result.success(null)
+                        } catch (_: Exception) {
+                            // The activity went away while the peers were applied.
+                        }
+                    }
+                }
             }
 
             "probePeers" -> {

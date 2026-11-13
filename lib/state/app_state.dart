@@ -242,6 +242,11 @@ class AppState extends ChangeNotifier {
   /// screen shows a Reconnect banner while this differs from the settings.
   String appliedExitSignature = '';
 
+  /// True while a switch of the selected exit node is being applied to the
+  /// running forwarder. The pending-changes banner must not flash for it: the
+  /// switch is applied in place and needs no reconnect.
+  bool _exitApplyInFlight = false;
+
   /// The last exit health read from the bridge, kept until a new snapshot with
   /// its own exit status arrives.
   ExitStatus? _exitChecked;
@@ -1170,6 +1175,7 @@ class AppState extends ChangeNotifier {
 
   bool get exitChangesPending =>
       snapshot.isConnected &&
+      !_exitApplyInFlight &&
       appliedExitSignature.isNotEmpty &&
       appliedExitSignature != _exitSignatureOf(settings);
 
@@ -1272,16 +1278,22 @@ class AppState extends ChangeNotifier {
       final dns = next.first.dnsServer;
       if (dns.isNotEmpty) servers.add(dns);
     }
-    await saveSettings(
-      settings.copyWith(exitActiveId: id, dnsServers: servers),
-    );
     // The selected node is the only exit the tunnel uses: the pinned peer and
     // the forwarder follow the switch at once, so public traffic moves to the
-    // new node without waiting for a reconnect.
-    await _syncExitPeers(settings.exitProfiles);
-    unawaited(_resolveExitCountries());
-    if (await applyExitConfig()) {
-      _exitChecked = await Native.exitStatus() ?? _exitChecked;
+    // new node without waiting for a reconnect. The banner stays hidden while
+    // this runs, otherwise it would flash on every switch.
+    _exitApplyInFlight = true;
+    try {
+      await saveSettings(
+        settings.copyWith(exitActiveId: id, dnsServers: servers),
+      );
+      await _syncExitPeers(settings.exitProfiles);
+      unawaited(_resolveExitCountries());
+      if (await applyExitConfig()) {
+        _exitChecked = await Native.exitStatus() ?? _exitChecked;
+      }
+    } finally {
+      _exitApplyInFlight = false;
       notifyListeners();
     }
   }

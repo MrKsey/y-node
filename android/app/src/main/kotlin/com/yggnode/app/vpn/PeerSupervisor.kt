@@ -95,10 +95,12 @@ class PeerSupervisor(
         synchronized(sleeper) { sleeper.notifyAll() }
         thread?.interrupt()
         thread = null
-        synchronized(lock) {
-            prefs.savePeers(active.toList())
-            prefs.savePool(pool.toList())
-        }
+        // The stored list is not written back here. It belongs to the UI: the
+        // supervisor saves its own replacements as they happen, and writing the
+        // in-memory list on stop would overwrite a switch the app made a moment
+        // ago, when `applyUserPeers` had not reached this thread yet. The next
+        // connect then read the old exit peer and the tunnel came up without
+        // the node the user had just selected.
     }
 
     /** Called when the user edits the peer list while the tunnel is up. */
@@ -108,6 +110,10 @@ class PeerSupervisor(
             val previous = active.map { it.uri }.toSet()
             active = peers.toMutableList()
             deadSince.keys.retainAll(active.map { it.uri }.toSet())
+            // The store is what a connect reads, so it is written before the Go
+            // node is touched: a disconnect racing with this call must not bring
+            // the previous list back.
+            prefs.savePeers(active.toList())
             for (peer in peers) {
                 if (peer.uri !in previous) {
                     addedAt[peer.uri] = now
@@ -127,7 +133,6 @@ class PeerSupervisor(
                     }
                 }
             }
-            prefs.savePeers(active.toList())
         }
         onLog("INFO", "peer list updated by the user (${peers.size})")
     }

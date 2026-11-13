@@ -4,6 +4,14 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.5] — 2026-11-13
+
+### Fixed
+
+- Switching the exit node while the tunnel is up no longer loses the new node on a reconnect. The peer list is now applied to the running supervisor before the UI continues, and stopping the supervisor no longer writes its in-memory list back over the list the app had just saved, which used to restore the previous exit peer and leave the tunnel without a route to the selected node.
+- The selected exit node is reached directly right after a switch: its pinned peer is added to the live Yggdrasil node and the old one is removed in the same call, so the exit server sees the client and split-tunnel apps keep leaving through it.
+- The Reconnect banner no longer flashes on every switch of the exit node. The switch is applied to the running forwarder in place, so no reconnect is needed and no pending-change banner is shown for it.
+
 ## [1.5.4] — 2026-11-13
 
 ### Fixed
