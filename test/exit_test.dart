@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:y_node/data/exit_link.dart';
 import 'package:y_node/data/models.dart';
@@ -214,6 +217,46 @@ void main() {
       expect(state.exitDnsServer, '202::2');
       expect(state.settings.dnsServers, contains('202::2'));
       expect(state.settings.dnsServers, isNot(contains('202::1')));
+    });
+
+    test('the resolver of the new profile is checked after a switch', () async {
+      final state = stateWith(
+        profiles: const [exit, other],
+        exitDnsEnabled: true,
+      );
+      state.settings = state.settings.copyWith(dnsServers: ['202::1']);
+      state.snapshot = const VpnSnapshot(status: 'connected', peersUp: 1);
+      final checked = <String>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel('com.yggnode.app/vpn'),
+            (call) async {
+              if (call.method == 'applyExitConfig') return true;
+              if (call.method == 'checkDns') {
+                final servers =
+                    (call.arguments as Map)['servers'] as List<dynamic>;
+                checked.addAll(servers.cast<String>());
+                return jsonEncode([
+                  for (final server in servers)
+                    {'server': server, 'ok': true, 'ms': 12, 'via': 'udp'},
+                ]);
+              }
+              return null;
+            },
+          );
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+              const MethodChannel('com.yggnode.app/vpn'),
+              null,
+            ),
+      );
+
+      await state.setExitActive('202::2:1080');
+      await pumpEventQueue();
+
+      expect(checked, ['202::2']);
+      expect(state.dnsChecks['202::2']?.ok, isTrue);
     });
 
     test('the switch stores the intent without a published resolver', () async {

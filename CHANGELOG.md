@@ -4,6 +4,13 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.6] — 2026-11-14
+
+### Fixed
+
+- The DNS server published by the newly selected exit node is checked right after a switch. The row in **Settings → DNS → In use** used to stay without a result while every other server showed its state, because only the server list was updated and no query was sent through the fresh resolver.
+- The notification names the exit node: with an active exit the heading reads `Connected - <name>`, without one it stays `Connected`. The name is part of the notification key, so a switch repaints the panel at once instead of keeping the name of the previous node.
+
 ## [1.5.5] — 2026-11-13
 
 ### Fixed

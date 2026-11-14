@@ -146,6 +146,9 @@ class YggVpnService : VpnService() {
                 // Restart the health loop so a newly enabled exit is checked
                 // right away and a disabled one stops being polled.
                 service.startExitWatch()
+                // The heading names the selected node: repaint it at once
+                // instead of waiting for the next stats tick.
+                service.updateNotification()
                 ConnectionLog.append("SERVICE", "exit configuration applied")
                 true
             } catch (t: Throwable) {
@@ -1259,6 +1262,30 @@ class YggVpnService : VpnService() {
         }
     }
 
+    /**
+     * The heading of the notification. A tunnel that sends public traffic
+     * through an exit node names it, so the panel shows where the traffic
+     * leaves the mesh; without an exit the heading stays short.
+     */
+    private fun notificationTitle(status: String): String {
+        val base = when (status) {
+            VpnState.STATUS_CONNECTED -> "Connected"
+            VpnState.STATUS_CONNECTING -> "Connecting…"
+            VpnState.STATUS_RECONNECTING -> "Reconnecting…"
+            VpnState.STATUS_DISCONNECTING -> "Disconnecting…"
+            else -> "Disconnected"
+        }
+        if (status != VpnState.STATUS_CONNECTED) return base
+        val current = prefs.settings()
+        if (!current.exitActive()) return base
+        // An unset active id means the bridge uses the first profile.
+        val profile = current.exitProfiles.firstOrNull {
+            it.id == current.exitActiveId
+        } ?: current.exitProfiles.firstOrNull()
+        val name = profile?.name?.trim().orEmpty()
+        return if (name.isEmpty()) base else "$base - $name"
+    }
+
     private fun buildNotification(status: String, detail: String): Notification {
         val open = PendingIntent.getActivity(
             this,
@@ -1278,13 +1305,7 @@ class YggVpnService : VpnService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val title = when (status) {
-            VpnState.STATUS_CONNECTED -> "Connected"
-            VpnState.STATUS_CONNECTING -> "Connecting…"
-            VpnState.STATUS_RECONNECTING -> "Reconnecting…"
-            VpnState.STATUS_DISCONNECTING -> "Disconnecting…"
-            else -> "Disconnected"
-        }
+        val title = notificationTitle(status)
         val body = notificationBody(status, detail)
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
@@ -1305,11 +1326,19 @@ class YggVpnService : VpnService() {
             .build()
     }
 
+    /**
+     * The text the notification carries. The heading is part of the key: a
+     * switch of the exit node changes it while the counters stay the same, and
+     * without it the panel would keep the name of the previous node.
+     */
+    private fun notificationKey(status: String, detail: String): String =
+        "$status|${notificationTitle(status)}|${notificationBody(status, detail)}"
+
     private fun goForeground(status: String, detail: String) {
         val notification = buildNotification(status, detail)
         // The posted notification now carries this text; the stats thread must
         // not post the same thing again a moment later.
-        lastNotificationKey = "$status|${notificationBody(status, detail)}"
+        lastNotificationKey = notificationKey(status, detail)
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 try {
@@ -1337,7 +1366,7 @@ class YggVpnService : VpnService() {
         if (!isActive) return
         val manager = getSystemService(NotificationManager::class.java) ?: return
         val status = VpnState.current.status
-        val key = "$status|${notificationBody(status, "")}"
+        val key = notificationKey(status, "")
         if (key == lastNotificationKey) return
         lastNotificationKey = key
         try {

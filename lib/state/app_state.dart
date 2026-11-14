@@ -1269,15 +1269,23 @@ class AppState extends ChangeNotifier {
     // switch put in the list is replaced with the resolver of the new node.
     final previous = exitDnsServer;
     final servers = [...settings.dnsServers];
+    final replacement = next.first.dnsServer;
     if (settings.exitDnsEnabled) {
       if (previous.isNotEmpty) servers.remove(previous);
-      final dns = next.first.dnsServer;
-      if (dns.isNotEmpty && !servers.contains(dns)) servers.add(dns);
+      if (replacement.isNotEmpty && !servers.contains(replacement)) {
+        servers.add(replacement);
+      }
     } else if (previous.isNotEmpty && servers.contains(previous)) {
       servers.remove(previous);
-      final dns = next.first.dnsServer;
-      if (dns.isNotEmpty) servers.add(dns);
+      if (replacement.isNotEmpty) servers.add(replacement);
     }
+    // The resolver that came with the new node has no result yet: it has to be
+    // measured through the tunnel after the switch, or the DNS tab would show
+    // the row without a state while every other server is checked.
+    final checkNewDns =
+        replacement.isNotEmpty &&
+        replacement != previous &&
+        servers.contains(replacement);
     // The selected node is the only exit the tunnel uses: the pinned peer and
     // the forwarder follow the switch at once, so public traffic moves to the
     // new node without waiting for a reconnect. The banner stays hidden while
@@ -1291,6 +1299,7 @@ class AppState extends ChangeNotifier {
       unawaited(_resolveExitCountries());
       if (await applyExitConfig()) {
         _exitChecked = await Native.exitStatus() ?? _exitChecked;
+        if (checkNewDns) unawaited(_checkSwitchedExitDns(replacement));
       }
     } finally {
       _exitApplyInFlight = false;
@@ -2526,6 +2535,20 @@ class AppState extends ChangeNotifier {
     _dnsReadySince = null;
     _dnsGeneration++;
     notifyListeners();
+  }
+
+  /// Checks the resolver that came with the newly selected exit profile. A
+  /// full verification may already be running: it started before the switch
+  /// and its server list is the old one, so waiting for it is the only way to
+  /// measure the new resolver instead of dropping the check.
+  Future<void> _checkSwitchedExitDns(String server) async {
+    for (var attempt = 0; attempt < 60; attempt++) {
+      if (!checkingDns) {
+        await checkDnsServer(server);
+        return;
+      }
+      await Future<void>.delayed(const Duration(seconds: 1));
+    }
   }
 
   /// Checks one server that was just added to the list, so the new entry shows
