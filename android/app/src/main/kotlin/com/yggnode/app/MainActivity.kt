@@ -268,12 +268,15 @@ class MainActivity : FlutterActivity() {
             "registerExit" -> {
                 val profileId = call.argument<String>("profileId") ?: ""
                 val invite = call.argument<String>("invite") ?: ""
-                if (invite.isBlank()) {
+                val label = call.argument<String>("label") ?: ""
+                // An empty invite with a profile is the label refresh path:
+                // the client is already allowlisted and only sends its name.
+                if (invite.isBlank() && profileId.isBlank()) {
                     result.error("invite_missing", "The invite token is empty", null)
                     return
                 }
                 worker.execute {
-                    val json = YggVpnService.registerExit(profileId, invite)
+                    val json = YggVpnService.registerExit(profileId, invite, label)
                     mainHandler.post { result.success(json) }
                 }
             }

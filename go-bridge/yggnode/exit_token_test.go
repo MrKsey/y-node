@@ -228,7 +228,7 @@ func TestRegisterStoresIssuedToken(t *testing.T) {
 		})
 	}))
 
-	result := manager.register(context.Background(), profile.ID, "invite", "", "", "phone", "1.3.0")
+	result := manager.register(context.Background(), profile.ID, "invite", "", "", "phone", "1.3.0", "My phone")
 	if result.Error != "" {
 		t.Fatalf("register: %+v", result)
 	}

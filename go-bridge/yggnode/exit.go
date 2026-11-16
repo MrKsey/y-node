@@ -1647,7 +1647,7 @@ func (m *exitManager) profile(id string) (ExitProfile, bool) {
 // Yggdrasil, so the exit sees the node address as the source and the invite is
 // bound to it. Registration is not an exit data-path operation: it works even
 // when the exit itself is disabled, as long as the tunnel is up.
-func (m *exitManager) register(ctx context.Context, profileID, invite, address, publicKey, deviceName, appVersion string) registerResult {
+func (m *exitManager) register(ctx context.Context, profileID, invite, address, publicKey, deviceName, appVersion, label string) registerResult {
 	profile, ok := m.profile(profileID)
 	if !ok {
 		return registerResult{Error: "unknown_profile", Message: "the exit profile is not configured"}
@@ -1660,13 +1660,20 @@ func (m *exitManager) register(ctx context.Context, profileID, invite, address, 
 		return registerResult{Error: "tunnel_unavailable", Message: "the Yggdrasil stack is not available"}
 	}
 
-	body, err := json.Marshal(map[string]string{
+	// An empty label is left out of the request: an exit older than 1.7.20
+	// rejects unknown fields, and an app that has no custom name must keep
+	// working against it.
+	fields := map[string]string{
 		"invite":     strings.TrimSpace(invite),
 		"address":    address,
 		"publicKey":  publicKey,
 		"deviceName": strings.TrimSpace(deviceName),
 		"appVersion": strings.TrimSpace(appVersion),
-	})
+	}
+	if label = strings.TrimSpace(label); label != "" {
+		fields["label"] = label
+	}
+	body, err := json.Marshal(fields)
 	if err != nil {
 		return registerResult{Error: "encode_failed"}
 	}

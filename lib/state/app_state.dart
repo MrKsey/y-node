@@ -1207,6 +1207,44 @@ class AppState extends ChangeNotifier {
   Future<void> setExitFallbackDirect(bool value) =>
       saveSettings(settings.copyWith(exitFallbackDirect: value));
 
+  /// The label the client asks the exit node to show. Empty means "let the
+  /// service use the device name", which is also the default when the switch is
+  /// off. The server enforces the same 32-character limit.
+  String get _exitLabel {
+    final name = settings.exitNodeName.trim();
+    if (!settings.exitNodeNameEnabled || name.isEmpty) return '';
+    return _truncateLabel(name);
+  }
+
+  /// Counts characters, not UTF-16 units, so an emoji label is not cut in half.
+  static String _truncateLabel(String value) {
+    final runes = value.runes.toList();
+    if (runes.length <= 32) return value;
+    return String.fromCharCodes(runes.take(32));
+  }
+
+  /// Stores the "My name on exit node" preference and pushes it to a running
+  /// exit node at once. A registration with an empty invite is the update path
+  /// for a client that is already allowlisted.
+  Future<void> setExitNodeName({
+    required bool enabled,
+    required String name,
+  }) async {
+    final next = _truncateLabel(name.trim());
+    await saveSettings(
+      settings.copyWith(exitNodeNameEnabled: enabled, exitNodeName: next),
+    );
+    if (!snapshot.isConnected) return;
+    final profile = settings.exitActiveProfile;
+    if (profile == null) return;
+    await Native.registerExit(
+      profileId: profile.id,
+      invite: '',
+      label: _exitLabel,
+    );
+    notifyListeners();
+  }
+
   Future<void> setExitLocalDns(bool value) =>
       saveSettings(settings.copyWith(exitLocalDns: value));
 
@@ -1575,7 +1613,11 @@ class AppState extends ChangeNotifier {
     }
     await applyExitConfig();
     final result =
-        await Native.registerExit(profileId: profile.id, invite: token) ??
+        await Native.registerExit(
+          profileId: profile.id,
+          invite: token,
+          label: _exitLabel,
+        ) ??
         const ExitRegistration(error: 'native_error');
     if (result.ok) {
       final dns = result.dnsAddress;

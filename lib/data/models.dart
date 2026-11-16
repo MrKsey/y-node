@@ -1093,6 +1093,8 @@ class AppSettings {
     this.exitUdp = true,
     this.exitDnsServers = defaultExitDnsServers,
     this.exitLocalDnsServers = const [],
+    this.exitNodeNameEnabled = false,
+    this.exitNodeName = '',
   });
 
   final int peerCount;
@@ -1130,6 +1132,14 @@ class AppSettings {
   /// Resolvers for local names. Empty means the DNS servers of the real
   /// network, read from the active link by the Android service.
   final List<String> exitLocalDnsServers;
+
+  /// True when the name below is sent to the exit node as the client label.
+  /// When it is off, the exit node shows the device name.
+  final bool exitNodeNameEnabled;
+
+  /// The label the client asks the exit node to show. Empty means the device
+  /// name; the server caps it at 32 characters.
+  final String exitNodeName;
 
   /// True when public traffic should be sent through an exit node.
   bool get exitActive => exitEnabled && exitProfiles.isNotEmpty;
@@ -1206,6 +1216,8 @@ class AppSettings {
         ? defaultExitDnsServers
         : _serverList(json, 'exitDnsServers'),
     exitLocalDnsServers: _serverList(json, 'exitLocalDnsServers'),
+    exitNodeNameEnabled: (json['exitNodeNameEnabled'] as bool?) ?? false,
+    exitNodeName: (json['exitNodeName'] as String?) ?? '',
   );
 
   Map<String, dynamic> toJson() => {
@@ -1231,6 +1243,8 @@ class AppSettings {
     'exitUdp': exitUdp,
     'exitDnsServers': exitDnsServers,
     'exitLocalDnsServers': exitLocalDnsServers,
+    'exitNodeNameEnabled': exitNodeNameEnabled,
+    'exitNodeName': exitNodeName,
   };
 
   AppSettings copyWith({
@@ -1256,6 +1270,8 @@ class AppSettings {
     bool? exitUdp,
     List<String>? exitDnsServers,
     List<String>? exitLocalDnsServers,
+    bool? exitNodeNameEnabled,
+    String? exitNodeName,
   }) => AppSettings(
     peerCount: peerCount ?? this.peerCount,
     autoReplace: autoReplace ?? this.autoReplace,
@@ -1279,6 +1295,8 @@ class AppSettings {
     exitUdp: exitUdp ?? this.exitUdp,
     exitDnsServers: exitDnsServers ?? this.exitDnsServers,
     exitLocalDnsServers: exitLocalDnsServers ?? this.exitLocalDnsServers,
+    exitNodeNameEnabled: exitNodeNameEnabled ?? this.exitNodeNameEnabled,
+    exitNodeName: exitNodeName ?? this.exitNodeName,
   );
 }
 

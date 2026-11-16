@@ -52,6 +52,7 @@ void main() {
       'exitIpv6TestAddress': 1,
       'exitIpv6TestThrough': 1,
       'exitDnsAdvertised': 1,
+      'exitMyNameOn': 1,
     };
     for (final entry in interpolated.entries) {
       expect(

@@ -180,7 +180,18 @@ data class Settings(
     val exitUdp: Boolean = true,
     val exitDnsServers: List<String> = DEFAULT_EXIT_DNS,
     val exitLocalDnsServers: List<String> = emptyList(),
+    val exitNodeNameEnabled: Boolean = false,
+    val exitNodeName: String = "",
 ) {
+    /** The label sent to the exit node: the custom name or the device name. */
+    fun exitLabel(deviceName: String): String {
+        val custom = exitNodeName.trim()
+        return if (exitNodeNameEnabled && custom.isNotEmpty()) {
+            custom.take(32)
+        } else {
+            deviceName.trim().ifEmpty { "Android" }.take(32)
+        }
+    }
     /** The DNS servers that should be handed to the tunnel, empty for system DNS. */
     fun effectiveDns(): List<String> = when (dnsMode) {
         DNS_SYSTEM -> emptyList()
@@ -239,6 +250,8 @@ data class Settings(
         put("exitUdp", exitUdp)
         put("exitDnsServers", JSONArray(exitDnsServers))
         put("exitLocalDnsServers", JSONArray(exitLocalDnsServers))
+        put("exitNodeNameEnabled", exitNodeNameEnabled)
+        put("exitNodeName", exitNodeName)
     }
 
     companion object {
@@ -293,6 +306,11 @@ data class Settings(
                     exitLocalDnsServers = o.optJSONArray("exitLocalDnsServers")?.let { arr ->
                         buildList { for (i in 0 until arr.length()) add(arr.optString(i)) }
                     }?.filter { it.isNotBlank() } ?: d.exitLocalDnsServers,
+                    exitNodeNameEnabled = o.optBoolean(
+                        "exitNodeNameEnabled",
+                        d.exitNodeNameEnabled,
+                    ),
+                    exitNodeName = o.optString("exitNodeName", d.exitNodeName),
                 )
             } catch (_: Exception) {
                 Settings()

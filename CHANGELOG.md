@@ -4,6 +4,16 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.7] — 2026-11-16
+
+### Added
+
+- **Exit node → Manage → Settings** has a new **My name on exit node** option. When it is off or the name is empty, the exit node shows the device name. The name is sent as the client label and is limited to 32 characters; the X-Node operator can allow or forbid client labels.
+
+### Changed
+
+- The **Address book** menu and screen are now called **Services**.
+
 ## [1.5.6] — 2026-11-14
 
 ### Fixed

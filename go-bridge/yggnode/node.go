@@ -640,8 +640,10 @@ func (n *Node) CheckExitProfiles(timeoutMs int) string {
 
 // RegisterExit redeems an invite token on one exit profile. Registration needs
 // a live tunnel: the exit authenticates the source address of the request, and
-// that address only exists while the node is connected.
-func (n *Node) RegisterExit(profileID string, invite string, deviceName string, appVersion string) string {
+// that address only exists while the node is connected. An empty invite is
+// accepted for an address that is already allowlisted, which is how the app
+// refreshes the device name and the label.
+func (n *Node) RegisterExit(profileID string, invite string, deviceName string, appVersion string, label string) string {
 	n.mu.Lock()
 	manager := n.exit
 	address := n.address
@@ -653,7 +655,7 @@ func (n *Node) RegisterExit(profileID string, invite string, deviceName string, 
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	result := manager.register(ctx, profileID, invite, address, publicKey, deviceName, appVersion)
+	result := manager.register(ctx, profileID, invite, address, publicKey, deviceName, appVersion, label)
 	b, err := json.Marshal(result)
 	if err != nil {
 		return `{"ok":false,"error":"encode_failed"}`

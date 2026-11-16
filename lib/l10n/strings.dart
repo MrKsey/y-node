@@ -58,7 +58,7 @@ class L10n {
 
     'navHome': 'Tunnel',
     'navPeers': 'Peers',
-    'navBook': 'Address book',
+    'navBook': 'Services',
     'navSplit': 'Apps',
     'navSettings': 'Settings',
 
@@ -218,7 +218,7 @@ class L10n {
         'The list keeps this order while you filter it.',
     'peerTesting': 'Testing…',
 
-    'bookTitle': 'Address book',
+    'bookTitle': 'Services',
     'bookEmpty': 'The list is empty',
     'addResource': 'Add a resource',
     'editResource': 'Edit resource',
@@ -237,7 +237,7 @@ class L10n {
     'directoryHint': 'Resources published in the Yggdrasil web directory',
     'directoryLoading': 'Reading the directory through the tunnel…',
     'directoryEmpty':
-        'The directory has no resources that are not in the book yet',
+        'The directory has no resources that are not in Services yet',
     'directoryFailed':
         'Could not read the directory. Check the tunnel and try again.',
     'needConnectionTitle': 'Yggdrasil is off',
@@ -260,7 +260,7 @@ class L10n {
     'bookSelectCancel': 'Done',
     'bookSelectedCount': '%s selected',
     'bookDeleteSelected': 'Delete selected',
-    'bookDeleteSelectedBody': 'Delete the selected resources from the book?',
+    'bookDeleteSelectedBody': 'Delete the selected resources from Services?',
     'bookDeletedCount': 'Resources deleted: %s',
     'bookReorderHint': 'Long-press a card to move it',
 
@@ -300,6 +300,16 @@ class L10n {
 
     'exitNode': 'Exit node',
     'exitManage': 'Manage',
+    'exitMyNameTitle': 'My name on exit node',
+    'exitMyNameHint':
+        'Shown in the client list of the exit node instead of the device name',
+    'exitMyNameOff': 'Off: the exit node shows the device name',
+    'exitMyNameOn': 'Shown as: %s',
+    'exitMyNameDevice': 'Device name',
+    'exitMyNameDialogTitle': 'My name on exit node',
+    'exitMyNameField': 'Name',
+    'exitMyNameFieldHint': 'Up to 32 characters',
+    'exitMyNameSaved': 'Name sent to the exit node',
     'exitAddNode': 'Add an exit node',
     'exitStateOff': 'Off',
     'exitStateNoProfile': 'No node',

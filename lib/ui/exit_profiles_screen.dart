@@ -203,6 +203,38 @@ class _ExitProfilesScreenState extends State<ExitProfilesScreen> {
                 secondary: const Icon(Icons.alt_route_rounded),
               ),
               SwitchListTile(
+                value: settings.exitNodeNameEnabled,
+                onChanged: (value) => state.setExitNodeName(
+                  enabled: value,
+                  name: settings.exitNodeName,
+                ),
+                title: Text(l10n.t('exitMyNameTitle')),
+                subtitle: Text(
+                  settings.exitNodeNameEnabled &&
+                          settings.exitNodeName.trim().isNotEmpty
+                      ? l10n.tf('exitMyNameOn', [settings.exitNodeName.trim()])
+                      : settings.exitNodeNameEnabled
+                      ? l10n.t('exitMyNameDevice')
+                      : l10n.t('exitMyNameOff'),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                secondary: const Icon(Icons.badge_outlined),
+              ),
+              ListTile(
+                leading: const Icon(Icons.drive_file_rename_outline_rounded),
+                title: Text(l10n.t('exitMyNameField')),
+                subtitle: Text(
+                  settings.exitNodeName.trim().isEmpty
+                      ? l10n.t('exitMyNameDevice')
+                      : settings.exitNodeName.trim(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: const Icon(Icons.edit_rounded, size: 18),
+                onTap: () => _editExitNodeName(state),
+              ),
+              SwitchListTile(
                 value: settings.exitLocalDns,
                 onChanged: state.setExitLocalDns,
                 title: Text(l10n.t('exitLocalDns')),
@@ -450,6 +482,42 @@ class _ExitProfilesScreenState extends State<ExitProfilesScreen> {
     } finally {
       if (mounted) setState(() => _registering = null);
     }
+  }
+
+  Future<void> _editExitNodeName(AppState state) async {
+    final l10n = state.l10n;
+    final controller = TextEditingController(text: state.settings.exitNodeName);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l10n.t('exitMyNameDialogTitle')),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 32,
+          decoration: InputDecoration(
+            labelText: l10n.t('exitMyNameField'),
+            helperText: l10n.t('exitMyNameFieldHint'),
+            hintText: l10n.t('exitMyNameDevice'),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(l10n.t('cancel')),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(controller.text.trim()),
+            child: Text(l10n.t('save')),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (result == null || !mounted) return;
+    await state.setExitNodeName(enabled: result.isNotEmpty, name: result);
+    if (mounted) showSnack(context, l10n.t('exitMyNameSaved'));
   }
 
   Future<void> _remove(AppState state, ExitProfile profile) async {

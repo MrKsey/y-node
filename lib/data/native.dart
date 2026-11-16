@@ -260,16 +260,20 @@ class Native {
     }
   }
 
-  /// Redeems an invite token on an exit node through the running tunnel.
+  /// Redeems an invite token on an exit node through the running tunnel. An
+  /// empty [invite] refreshes the device name and the label of a client that is
+  /// already allowlisted; [label] is the name the exit should show.
   static Future<ExitRegistration?> registerExit({
     required String profileId,
     required String invite,
+    String label = '',
   }) async {
     try {
       final raw = await _vpn
           .invokeMethod<String>('registerExit', {
             'profileId': profileId,
             'invite': invite,
+            'label': label,
           })
           .timeout(const Duration(seconds: 30), onTimeout: () => null);
       return ExitRegistration.tryParse(raw);

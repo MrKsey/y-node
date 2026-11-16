@@ -216,7 +216,7 @@ class YggVpnService : VpnService() {
         }
 
         /** Redeems an invite token on one exit profile through the tunnel. */
-        fun registerExit(profileId: String, invite: String): String {
+        fun registerExit(profileId: String, invite: String, label: String = ""): String {
             val service = instance
                 ?: return """{"ok":false,"error":"vpn_not_running"}"""
             val version = try {
@@ -224,12 +224,15 @@ class YggVpnService : VpnService() {
             } catch (_: Throwable) {
                 "?"
             }
+            val device = deviceName()
+            val effectiveLabel = label.trim().ifEmpty { device }.take(32)
             return try {
                 service.node.registerExit(
                     profileId,
                     invite,
-                    deviceName(),
+                    device,
                     version,
+                    effectiveLabel,
                 )
             } catch (t: Throwable) {
                 ConnectionLog.append("WARN", "exit registration failed: ${t.message}")
@@ -1126,16 +1129,18 @@ class YggVpnService : VpnService() {
         val profile = current.exitProfiles.firstOrNull {
             it.id == current.exitActiveId
         } ?: current.exitProfiles.firstOrNull() ?: return
+        val device = try {
+            Build.MODEL ?: "Android"
+        } catch (_: Throwable) {
+            "Android"
+        }
         try {
             node.registerExit(
                 profile.id,
                 "",
-                try {
-                    Build.MODEL ?: "Android"
-                } catch (_: Throwable) {
-                    "Android"
-                },
+                device,
                 appVersion(),
+                current.exitLabel(device),
             )
         } catch (t: Throwable) {
             ConnectionLog.append("WARN", "registration refresh failed: ${t.message}")
