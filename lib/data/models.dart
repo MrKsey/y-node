@@ -1095,6 +1095,8 @@ class AppSettings {
     this.exitLocalDnsServers = const [],
     this.exitNodeNameEnabled = false,
     this.exitNodeName = '',
+    this.connectOnLaunch = false,
+    this.startOnBoot = false,
   });
 
   final int peerCount;
@@ -1140,6 +1142,15 @@ class AppSettings {
   /// The label the client asks the exit node to show. Empty means the device
   /// name; the server caps it at 32 characters.
   final String exitNodeName;
+
+  /// Bring the tunnel up when the app opens. Off by default: the user taps
+  /// Connect unless they asked otherwise.
+  final bool connectOnLaunch;
+
+  /// Start the app when the phone boots. It comes back in the background, with
+  /// the ongoing notification as its only window, and connects only when
+  /// [connectOnLaunch] is on or the tunnel was left running.
+  final bool startOnBoot;
 
   /// True when public traffic should be sent through an exit node.
   bool get exitActive => exitEnabled && exitProfiles.isNotEmpty;
@@ -1218,6 +1229,8 @@ class AppSettings {
     exitLocalDnsServers: _serverList(json, 'exitLocalDnsServers'),
     exitNodeNameEnabled: (json['exitNodeNameEnabled'] as bool?) ?? false,
     exitNodeName: (json['exitNodeName'] as String?) ?? '',
+    connectOnLaunch: (json['connectOnLaunch'] as bool?) ?? false,
+    startOnBoot: (json['startOnBoot'] as bool?) ?? false,
   );
 
   Map<String, dynamic> toJson() => {
@@ -1245,6 +1258,8 @@ class AppSettings {
     'exitLocalDnsServers': exitLocalDnsServers,
     'exitNodeNameEnabled': exitNodeNameEnabled,
     'exitNodeName': exitNodeName,
+    'connectOnLaunch': connectOnLaunch,
+    'startOnBoot': startOnBoot,
   };
 
   AppSettings copyWith({
@@ -1272,6 +1287,8 @@ class AppSettings {
     List<String>? exitLocalDnsServers,
     bool? exitNodeNameEnabled,
     String? exitNodeName,
+    bool? connectOnLaunch,
+    bool? startOnBoot,
   }) => AppSettings(
     peerCount: peerCount ?? this.peerCount,
     autoReplace: autoReplace ?? this.autoReplace,
@@ -1297,6 +1314,8 @@ class AppSettings {
     exitLocalDnsServers: exitLocalDnsServers ?? this.exitLocalDnsServers,
     exitNodeNameEnabled: exitNodeNameEnabled ?? this.exitNodeNameEnabled,
     exitNodeName: exitNodeName ?? this.exitNodeName,
+    connectOnLaunch: connectOnLaunch ?? this.connectOnLaunch,
+    startOnBoot: startOnBoot ?? this.startOnBoot,
   );
 }
 

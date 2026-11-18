@@ -53,6 +53,7 @@ class AppState extends ChangeNotifier {
   static const String _kPool = 'pool';
   static const String _kIdentity = 'identity';
   static const String _kBook = 'book';
+  static const String _kHiddenServices = 'hidden_services';
   static const String _kTheme = 'theme';
   static const String _kCountry = 'country';
   static const String _kOnboarded = 'onboarded';
@@ -103,6 +104,12 @@ class AppState extends ChangeNotifier {
   Map<String, PeerErrorRecord> peerErrors = const {};
 
   List<Resource> resources = const [];
+
+  /// The built-in entries the user deleted. They stay out of the book until the
+  /// restore action brings them back, across restarts and upgrades: a built-in
+  /// is a default, but deleting it is the user's decision, not a reset.
+  Set<String> hiddenServices = const {};
+
   VpnSnapshot snapshot = const VpnSnapshot();
 
   /// The byte counters, kept apart from [snapshot] on purpose. They change every
@@ -271,6 +278,7 @@ class AppState extends ChangeNotifier {
   String? peerNotice;
 
   bool _initialised = false;
+  bool _launchConnectDone = false;
   StreamSubscription<VpnSnapshot>? _statusSub;
   Timer? _poll;
   bool _polling = false;
@@ -419,7 +427,7 @@ class AppState extends ChangeNotifier {
       }
       await Native.write(_kLogDefaultOff, '1');
     }
-    final migrated = _migrateExitDns(_migrateDns(settings));
+    final migrated = _withExitDnsFirst(_migrateExitDns(_migrateDns(settings)));
     if (migrated != settings) {
       settings = migrated;
       await Native.write(_kSettings, _encode(settings.toJson()));
@@ -433,6 +441,7 @@ class AppState extends ChangeNotifier {
     pool = PeerEntry.listFromJson(stored[_kPool]);
     peerErrors = PeerErrorRecord.mapFromJson(stored[_kPeerErrors]);
     resources = Resource.listFromJson(stored[_kBook]);
+    hiddenServices = _hiddenFromJson(stored[_kHiddenServices]);
     themeMode = _themeFromCode(stored[_kTheme]);
     countrySlug = stored[_kCountry] ?? '';
     onboarded = stored[_kOnboarded] == '1';
@@ -449,6 +458,7 @@ class AppState extends ChangeNotifier {
     peersUpdatedAt = DateTime.tryParse(stored[_kPeersUpdated] ?? '');
     final book = _withCurrentBuiltins(
       resources.isEmpty ? _defaultResources : resources,
+      hiddenServices,
     );
     if (!_sameResources(book, resources)) {
       resources = book;
@@ -846,6 +856,19 @@ class AppState extends ChangeNotifier {
   // ------------------------------------------------------------------
   // Tunnel
   // ------------------------------------------------------------------
+
+  /// The "Connect on launch" switch: brings the tunnel up once when the app
+  /// opens. A tunnel that is already up (started at boot or kept by the
+  /// service) is left alone. The caller runs it after the first frame, so the
+  /// VPN consent dialog has a window behind it.
+  Future<void> connectOnLaunchIfNeeded() async {
+    if (_launchConnectDone) return;
+    _launchConnectDone = true;
+    if (!settings.connectOnLaunch || peers.isEmpty) return;
+    final current = await Native.getState();
+    if (current != null && !current.isDisconnected) return;
+    await connect();
+  }
 
   Future<bool> connect() async {
     if (peers.isEmpty) {
@@ -1258,10 +1281,11 @@ class AppState extends ChangeNotifier {
   /// resolver nothing else changes.
   Future<void> setExitDns(bool value) async {
     final server = exitDnsServer;
-    final servers = [...settings.dnsServers];
+    var servers = [...settings.dnsServers];
     if (server.isNotEmpty) {
       if (value) {
         if (!servers.contains(server)) servers.add(server);
+        servers = _exitDnsFirst(servers, server);
       } else {
         servers.remove(server);
       }
@@ -1306,12 +1330,13 @@ class AppState extends ChangeNotifier {
     // The resolver of the exit node follows the active profile: a server the
     // switch put in the list is replaced with the resolver of the new node.
     final previous = exitDnsServer;
-    final servers = [...settings.dnsServers];
+    var servers = [...settings.dnsServers];
     final replacement = next.first.dnsServer;
     if (settings.exitDnsEnabled) {
       if (previous.isNotEmpty) servers.remove(previous);
-      if (replacement.isNotEmpty && !servers.contains(replacement)) {
-        servers.add(replacement);
+      if (replacement.isNotEmpty) {
+        if (!servers.contains(replacement)) servers.add(replacement);
+        servers = _exitDnsFirst(servers, replacement);
       }
     } else if (previous.isNotEmpty && servers.contains(previous)) {
       servers.remove(previous);
@@ -1352,6 +1377,34 @@ class AppState extends ChangeNotifier {
       if (profile.hasDns) profile.dnsServer,
   };
 
+  /// Puts [server] in front of the tunnel list: the resolver of the exit node
+  /// answers the in-network names first, and the Settings tab shows it at the
+  /// top of the "In use" block.
+  static List<String> _exitDnsFirst(List<String> servers, String server) {
+    if (server.isEmpty ||
+        !servers.contains(server) ||
+        servers.first == server) {
+      return servers;
+    }
+    return [
+      server,
+      for (final item in servers)
+        if (item != server) item,
+    ];
+  }
+
+  /// Applies the "DNS exit node" order to a stored configuration. Older builds
+  /// appended the resolver to the list, so an upgrade moves it to the front
+  /// once instead of waiting for the next profile switch.
+  static AppSettings _withExitDnsFirst(AppSettings value) {
+    if (!value.exitDnsEnabled || value.dnsMode == DnsMode.system) return value;
+    final profile = value.exitActiveProfile;
+    if (profile == null || !profile.hasDns) return value;
+    final servers = _exitDnsFirst(value.dnsServers, profile.dnsServer);
+    if (identical(servers, value.dnsServers)) return value;
+    return value.copyWith(dnsServers: servers);
+  }
+
   Future<void> saveExitProfiles(List<ExitProfile> profiles) async {
     var activeId = settings.exitActiveId;
     if (!profiles.any((profile) => profile.id == activeId)) {
@@ -1372,6 +1425,7 @@ class AppState extends ChangeNotifier {
       for (final server in settings.dnsServers)
         if (!before.contains(server) || after.contains(server)) server,
     ];
+    var ordered = servers;
     if (hadExitDns) {
       final active = profiles.isEmpty
           ? null
@@ -1380,7 +1434,10 @@ class AppState extends ChangeNotifier {
               orElse: () => profiles.first,
             );
       final dns = active?.dnsServer ?? '';
-      if (dns.isNotEmpty && !servers.contains(dns)) servers.add(dns);
+      if (dns.isNotEmpty) {
+        if (!ordered.contains(dns)) ordered = [...ordered, dns];
+        ordered = _exitDnsFirst(ordered, dns);
+      }
     }
     await saveSettings(
       settings.copyWith(
@@ -1391,7 +1448,7 @@ class AppState extends ChangeNotifier {
           profiles,
           settings.exitEnabled,
         ),
-        dnsServers: servers,
+        dnsServers: ordered,
       ),
     );
     await _syncExitPeers(profiles);
@@ -2319,8 +2376,11 @@ class AppState extends ChangeNotifier {
 
   /// Refreshes the built-in entries without touching the order the user gave
   /// them: a default keeps its place, a default from a newer build goes on top,
-  /// and a built-in the user deleted comes back (they are defaults, not data).
-  static List<Resource> _withCurrentBuiltins(List<Resource> current) {
+  /// and a built-in the user deleted stays out ([hidden]).
+  static List<Resource> _withCurrentBuiltins(
+    List<Resource> current,
+    Set<String> hidden,
+  ) {
     final defaults = {for (final item in _defaultResources) item.id: item};
     final present = <String>{};
     final ordered = <Resource>[];
@@ -2330,13 +2390,13 @@ class AppState extends ChangeNotifier {
         continue;
       }
       final fresh = defaults[item.id];
-      if (fresh == null) continue;
+      if (fresh == null || hidden.contains(item.id)) continue;
       present.add(item.id);
       ordered.add(fresh);
     }
     final missing = [
       for (final item in _defaultResources)
-        if (!present.contains(item.id)) item,
+        if (!present.contains(item.id) && !hidden.contains(item.id)) item,
     ];
     return [...missing, ...ordered];
   }
@@ -2351,6 +2411,20 @@ class AppState extends ChangeNotifier {
 
   Future<void> _persistResources() =>
       Native.write(_kBook, Resource.listToJson(resources));
+
+  Future<void> _persistHiddenServices() =>
+      Native.write(_kHiddenServices, jsonEncode(hiddenServices.toList()));
+
+  static Set<String> _hiddenFromJson(String? raw) {
+    if (raw == null || raw.isEmpty) return const {};
+    try {
+      final list = jsonDecode(raw);
+      if (list is! List) return const {};
+      return {for (final id in list.whereType<String>()) id};
+    } catch (_) {
+      return const {};
+    }
+  }
 
   Future<void> addResource(Resource resource) async {
     resources = [...resources, resource];
@@ -2368,12 +2442,37 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> deleteResource(String id) async {
+    final doomed = [
+      for (final item in resources)
+        if (item.id == id) item,
+    ];
     resources = [
       for (final item in resources)
         if (item.id != id) item,
     ];
+    if (doomed.any((item) => item.builtIn)) {
+      hiddenServices = {...hiddenServices, id};
+      await _persistHiddenServices();
+    }
     notifyListeners();
     await _persistResources();
+  }
+
+  /// Brings back the built-in entries the user deleted. They return on top of
+  /// the book in the catalogue order, as on a fresh install.
+  Future<int> restoreBuiltIns() async {
+    final hidden = hiddenServices;
+    if (hidden.isEmpty) return 0;
+    hiddenServices = const {};
+    resources = _withCurrentBuiltins([
+      for (final item in _defaultResources)
+        if (hidden.contains(item.id)) item,
+      ...resources,
+    ], hiddenServices);
+    notifyListeners();
+    await _persistHiddenServices();
+    await _persistResources();
+    return hidden.length;
   }
 
   /// Moves a resource to a new place in the book. The index follows the
@@ -2395,10 +2494,18 @@ class AppState extends ChangeNotifier {
     final doomed = ids.toSet();
     if (doomed.isEmpty) return 0;
     final before = resources.length;
+    final hiddenBuiltIns = {
+      for (final item in resources)
+        if (item.builtIn && doomed.contains(item.id)) item.id,
+    };
     resources = [
       for (final item in resources)
         if (!doomed.contains(item.id)) item,
     ];
+    if (hiddenBuiltIns.isNotEmpty) {
+      hiddenServices = {...hiddenServices, ...hiddenBuiltIns};
+      await _persistHiddenServices();
+    }
     await _persistResources();
     notifyListeners();
     return before - resources.length;
@@ -2778,4 +2885,16 @@ class AppState extends ChangeNotifier {
   /// exactly the "is this a change?" decision made here.
   @visibleForTesting
   void applySnapshotForTest(VpnSnapshot next) => _applySnapshot(next);
+
+  /// The built-in merge the address book runs on start, without a store.
+  @visibleForTesting
+  static List<Resource> mergeBuiltInsForTest(
+    List<Resource> current,
+    Set<String> hidden,
+  ) => _withCurrentBuiltins(current, hidden);
+
+  /// The order the "DNS exit node" switch gives the tunnel list on start.
+  @visibleForTesting
+  static AppSettings exitDnsOrderForTest(AppSettings value) =>
+      _withExitDnsFirst(value);
 }

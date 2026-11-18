@@ -88,6 +88,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ],
           ),
           SectionCard(
+            title: l10n.t('sectionStartup'),
+            children: [
+              SwitchListTile(
+                value: settings.connectOnLaunch,
+                secondary: const Icon(Icons.play_circle_outline_rounded),
+                onChanged: (value) =>
+                    save(settings.copyWith(connectOnLaunch: value)),
+                title: Text(l10n.t('connectOnLaunch')),
+                subtitle: Text(
+                  l10n.t('connectOnLaunchHint'),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              const Divider(height: 1),
+              SwitchListTile(
+                value: settings.startOnBoot,
+                secondary: const Icon(Icons.restart_alt_rounded),
+                onChanged: (value) async {
+                  await save(settings.copyWith(startOnBoot: value));
+                  // The notification is the only thing the app shows at boot.
+                  // Without the permission Android 13+ hides it, and the app
+                  // would look absent from the panel.
+                  if (value && !state.notificationsAllowed) {
+                    await Native.requestNotifications();
+                    await Future<void>.delayed(
+                      const Duration(milliseconds: 800),
+                    );
+                    await state.refreshBattery();
+                  }
+                  // Turning the option off takes a background app that was
+                  // started at boot out of the notification panel. A running
+                  // tunnel is left alone: this switch is not a disconnect.
+                  if (!value &&
+                      state.snapshot.isDisconnected &&
+                      !state.connecting) {
+                    await Native.stopIdle();
+                  }
+                },
+                title: Text(l10n.t('startOnBoot')),
+                subtitle: Text(
+                  l10n.t('startOnBootHint'),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          SectionCard(
             title: l10n.t('sectionDns'),
             subtitle: l10n.t('dnsHint'),
             children: [

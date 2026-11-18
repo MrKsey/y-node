@@ -200,6 +200,11 @@ class MainActivity : FlutterActivity() {
                 result.success(null)
             }
 
+            "stopIdle" -> {
+                YggVpnService.stopIdle()
+                result.success(null)
+            }
+
             "checkDns" -> {
                 val servers = call.argument<List<String>>("servers") ?: emptyList()
                 val timeout = call.argument<Int>("timeoutMs") ?: 4000

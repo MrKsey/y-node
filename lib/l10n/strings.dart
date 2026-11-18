@@ -254,6 +254,9 @@ class L10n {
     'deleteResource': 'Delete this resource?',
     'resourceDeleted': 'Resource deleted',
     'builtIn': 'built in',
+    'restoreBuiltIns': 'Restore built-in resources',
+    'restoreBuiltInsCount': 'Restore built-in resources (%s)',
+    'builtInsRestored': 'Built-in resources restored',
     'invalidUrl': 'The address must start with http:// or https://',
     'bookSearchHint': 'Search by title or address',
     'bookSelect': 'Select',
@@ -528,6 +531,14 @@ class L10n {
     'healthCheck': 'Check interval',
     'healthCheckHint':
         'How often the peer list and the latency are re-read from the node',
+    'sectionStartup': 'Startup',
+    'connectOnLaunch': 'Connect on launch',
+    'connectOnLaunchHint': 'Turn the tunnel on when the app opens',
+    'startOnBoot': 'Start with the system',
+    'startOnBootHint':
+        'Keep the app running after the phone boots. It stays in the '
+        'notification panel, without opening a window, and connects only when '
+        'the tunnel was on or "Connect on launch" is enabled.',
     'sectionDns': 'DNS',
     'dnsMode': 'DNS mode',
     'dnsYggdrasil': 'Yggdrasil internal DNS',

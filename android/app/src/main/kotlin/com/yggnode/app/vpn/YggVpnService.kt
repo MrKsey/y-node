@@ -44,6 +44,10 @@ class YggVpnService : VpnService() {
         const val ACTION_DISCONNECT = "com.yggnode.app.action.DISCONNECT"
         const val ACTION_WAKEUP = "com.yggnode.app.action.WAKEUP"
 
+        /** Starts the service without a tunnel: the app comes back in the
+         *  notification panel after a boot and waits for the user. */
+        const val ACTION_IDLE = "com.yggnode.app.action.IDLE"
+
         private const val CHANNEL_ID = "y_node_tunnel"
         private const val NOTIFICATION_ID = 1001
         private const val WAKEUP_REQUEST = 42
@@ -95,6 +99,19 @@ class YggVpnService : VpnService() {
         /** Re-reads the live peer state right away, for the Refresh button. */
         fun refreshPeers() {
             instance?.supervisor?.requestCheck()
+        }
+
+        /**
+         * Leaves the notification panel when the service only waits there: the
+         * app was started at boot and the user turned that option off. A running
+         * tunnel is never touched by this.
+         */
+        fun stopIdle() {
+            val service = instance ?: return
+            if (!service.idle) return
+            service.idle = false
+            service.stopForeground(STOP_FOREGROUND_REMOVE)
+            service.stopSelf()
         }
 
         /** Checks the DNS servers through the running node. */
@@ -251,6 +268,17 @@ class YggVpnService : VpnService() {
             ContextCompat.startForegroundService(context, intent)
         }
 
+        /**
+         * Starts the service from a system event. With [connect] false it only
+         * waits in the notification panel: that is what "start with the system"
+         * means on Android, where the app has no tray.
+         */
+        fun start(context: Context, connect: Boolean) {
+            val action = if (connect) ACTION_CONNECT else ACTION_IDLE
+            val intent = Intent(context, YggVpnService::class.java).setAction(action)
+            ContextCompat.startForegroundService(context, intent)
+        }
+
         fun disconnect(context: Context) {
             val intent = Intent(context, YggVpnService::class.java).setAction(ACTION_DISCONNECT)
             try {
@@ -327,6 +355,11 @@ class YggVpnService : VpnService() {
     @Volatile
     private var stopping = false
 
+    /** True while the service waits in the notification panel without a
+     *  tunnel, which is how the app runs after a boot with the switch on. */
+    @Volatile
+    private var idle = false
+
     @Volatile
     private var lastEstablishedAt = 0L
 
@@ -373,18 +406,26 @@ class YggVpnService : VpnService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // A null intent means Android restarted the sticky service: the user was
-        // connected when it was killed, so bring the tunnel back up.
-        val action = intent?.action ?: ACTION_CONNECT
+        // A null intent means Android restarted the sticky service. A tunnel the
+        // user left on comes back; an app started at boot keeps waiting in the
+        // panel instead of connecting behind the user's back.
+        val action = intent?.action ?: stickyAction()
         ConnectionLog.append("SERVICE", "start command: $action")
 
         return when (action) {
             ACTION_CONNECT -> {
                 // The five second foreground deadline is unforgiving: show the
                 // notification before doing anything slow.
+                idle = false
                 goForeground(VpnState.STATUS_CONNECTING, "")
                 stopRequested = false
                 worker.execute { handleConnect() }
+                START_STICKY
+            }
+
+            ACTION_IDLE -> {
+                idle = true
+                goForeground(VpnState.STATUS_DISCONNECTED, "Waiting in the background")
                 START_STICKY
             }
 
@@ -396,11 +437,18 @@ class YggVpnService : VpnService() {
             else -> {
                 // A connect may still be queued: make it stop before it builds
                 // anything, then tear down what is already up.
+                idle = false
                 stopRequested = true
                 worker.execute { handleDisconnect(userInitiated = true) }
                 START_NOT_STICKY
             }
         }
+    }
+
+    /** What a restart without an intent means for this install. */
+    private fun stickyAction(): String {
+        if (prefs.getString(Prefs.KEY_WANTED) == "1") return ACTION_CONNECT
+        return if (prefs.settings().startOnBoot) ACTION_IDLE else ACTION_DISCONNECT
     }
 
     override fun onRevoke() {
@@ -454,6 +502,7 @@ class YggVpnService : VpnService() {
             ConnectionLog.append("SERVICE", "connect cancelled before it started")
             return
         }
+        idle = false
         if (isActive && node.isRunning) {
             // A connect while the tunnel is still up means the settings changed
             // (the split-tunnel list is read only on start): tear the old link
@@ -732,6 +781,7 @@ class YggVpnService : VpnService() {
             // the pieces below throws while it is being released.
             VpnState.setStatus(VpnState.STATUS_DISCONNECTED)
             isActive = false
+            idle = false
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
@@ -1309,15 +1359,23 @@ class YggVpnService : VpnService() {
             Intent(this, YggVpnService::class.java).setAction(ACTION_DISCONNECT),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+        val start = PendingIntent.getService(
+            this,
+            2,
+            Intent(this, YggVpnService::class.java).setAction(ACTION_CONNECT),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
 
-        val title = notificationTitle(status)
+        val title = if (idle) "Y-Node" else notificationTitle(status)
         val body = notificationBody(status, detail)
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_tile)
             .setContentTitle(title)
             .setContentText(body)
-            .setOngoing(status != VpnState.STATUS_DISCONNECTED)
+            // An idle service is the app itself after a boot: its notification
+            // must stay in the panel like the tray icon of the desktop build.
+            .setOngoing(idle || status != VpnState.STATUS_DISCONNECTED)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -1326,6 +1384,8 @@ class YggVpnService : VpnService() {
             .apply {
                 if (status == VpnState.STATUS_CONNECTED || status == VpnState.STATUS_CONNECTING) {
                     addAction(0, "Disconnect", stop)
+                } else if (idle) {
+                    addAction(0, "Connect", start)
                 }
             }
             .build()
@@ -1337,7 +1397,8 @@ class YggVpnService : VpnService() {
      * without it the panel would keep the name of the previous node.
      */
     private fun notificationKey(status: String, detail: String): String =
-        "$status|${notificationTitle(status)}|${notificationBody(status, detail)}"
+        "$idle|$status|${if (idle) "Y-Node" else notificationTitle(status)}|" +
+            notificationBody(status, detail)
 
     private fun goForeground(status: String, detail: String) {
         val notification = buildNotification(status, detail)

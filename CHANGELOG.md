@@ -4,6 +4,19 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.8] — 2026-11-18
+
+### Added
+
+- **Settings → Startup → Connect on launch** brings the tunnel up when the app opens. It is off by default, and a tunnel that is already running (for example after a reboot) is left alone.
+- **Settings → Startup → Start with the system** brings the app back after the phone boots without opening a window: it waits in the notification panel with a Connect action, and connects by itself only when the tunnel was on before the reboot or "Connect on launch" is enabled. The switch asks for the notification permission, without which Android would hide the panel entry.
+- **Services** has a restore button that brings back the built-in resources deleted earlier, as in the desktop app.
+
+### Changed
+
+- A built-in resource deleted from **Services** stays deleted across restarts and upgrades instead of returning on every launch, and the order the user gave the list is kept.
+- The resolver published by the exit node is the first entry of **Settings → DNS → In use** and of the list handed to the tunnel, so the server that answers in-network names is used first.
+
 ## [1.5.7] — 2026-11-16
 
 ### Added

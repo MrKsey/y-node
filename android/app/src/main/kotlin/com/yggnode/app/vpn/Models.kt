@@ -182,6 +182,10 @@ data class Settings(
     val exitLocalDnsServers: List<String> = emptyList(),
     val exitNodeNameEnabled: Boolean = false,
     val exitNodeName: String = "",
+    /** Bring the tunnel up when the UI starts. */
+    val connectOnLaunch: Boolean = false,
+    /** Start the service when the phone boots, without opening the window. */
+    val startOnBoot: Boolean = false,
 ) {
     /** The label sent to the exit node: the custom name or the device name. */
     fun exitLabel(deviceName: String): String {
@@ -252,6 +256,8 @@ data class Settings(
         put("exitLocalDnsServers", JSONArray(exitLocalDnsServers))
         put("exitNodeNameEnabled", exitNodeNameEnabled)
         put("exitNodeName", exitNodeName)
+        put("connectOnLaunch", connectOnLaunch)
+        put("startOnBoot", startOnBoot)
     }
 
     companion object {
@@ -311,6 +317,8 @@ data class Settings(
                         d.exitNodeNameEnabled,
                     ),
                     exitNodeName = o.optString("exitNodeName", d.exitNodeName),
+                    connectOnLaunch = o.optBoolean("connectOnLaunch", d.connectOnLaunch),
+                    startOnBoot = o.optBoolean("startOnBoot", d.startOnBoot),
                 )
             } catch (_: Exception) {
                 Settings()

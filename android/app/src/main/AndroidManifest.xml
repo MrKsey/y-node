@@ -12,6 +12,8 @@
     <!-- Lets the app ask for the battery optimisation exemption, without which
          Android may kill the tunnel in the background. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- "Start with the system": the service comes back after a reboot. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- Split tunnelling lists the launchable apps. No QUERY_ALL_PACKAGES needed. -->
     <queries>
@@ -91,6 +93,18 @@
             android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- System broadcasts only. Exported because the sender is the system;
+             the receiver itself only reads the stored switch and never opens a
+             window. -->
+        <receiver
+            android:name=".vpn.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
 

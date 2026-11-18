@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -28,7 +30,15 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _checkForUpdate());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final state = context.read<AppState>();
+      // The "Connect on launch" switch runs after the first frame: the VPN
+      // consent dialog needs a window behind it, and a cold start must not
+      // wait on the tunnel before the app is on screen.
+      unawaited(state.connectOnLaunchIfNeeded());
+      _checkForUpdate();
+    });
   }
 
   /// Startup release check. Announces a newer release once per version, and

@@ -103,6 +103,14 @@ class Native {
         .timeout(const Duration(seconds: 5), onTimeout: () => null),
   );
 
+  /// Leaves the notification panel when the service was started at boot and
+  /// only waits there. A running tunnel is not touched.
+  static Future<void> stopIdle() => _guard(
+    () => _vpn
+        .invokeMethod('stopIdle')
+        .timeout(const Duration(seconds: 5), onTimeout: () => null),
+  );
+
   /// Checks the DNS servers through the running node.
   static Future<List<DnsCheck>> checkDns(List<String> servers) async {
     if (servers.isEmpty) return const [];

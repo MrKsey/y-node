@@ -205,4 +205,95 @@ void main() {
     // An unknown id keeps what the bridge reported.
     expect(state.exitProfileName('300::9:1080', 'old name'), 'old name');
   });
+
+  // Deleting a built-in resource is the user's decision: the entry must not
+  // come back on the next start, which is what the desktop app already does.
+  test('a deleted built-in stays out of the book', () {
+    const forum = Resource(
+      id: 'builtin:forum',
+      title: 'Forum in Yggdrasil',
+      url: 'http://[21a:34aa:c782:3ad2:1bf8:73f8:141:66e8]/',
+      builtIn: true,
+    );
+    final book = AppState.mergeBuiltInsForTest(
+      const [forum],
+      const {'builtin:forum'},
+    );
+
+    expect(book.any((item) => item.id == 'builtin:forum'), isFalse);
+    expect(book.length, 7, reason: 'the catalogue has eight defaults');
+  });
+
+  test('the book keeps its order and new defaults go on top', () {
+    const mine = Resource(
+      id: 'user:1',
+      title: 'Mine',
+      url: 'https://example.com/',
+    );
+    const stale = Resource(
+      id: 'builtin:myip',
+      title: 'old title',
+      url: 'http://[320:9c1:e1fa:a105::ad]/',
+      builtIn: true,
+    );
+    const forum = Resource(
+      id: 'builtin:forum',
+      title: 'Forum in Yggdrasil',
+      url: 'http://[21a:34aa:c782:3ad2:1bf8:73f8:141:66e8]/',
+      builtIn: true,
+    );
+
+    final book = AppState.mergeBuiltInsForTest(const [
+      stale,
+      mine,
+      forum,
+    ], const {});
+
+    // Six defaults the list did not have are prepended; the three entries the
+    // user kept stay in their order, with the title refreshed from the build.
+    expect(book.length, 9);
+    expect(book[book.length - 3].id, 'builtin:myip');
+    expect(book[book.length - 3].title, 'Show my IP address');
+    expect(book[book.length - 2].id, 'user:1');
+    expect(book.last.id, 'builtin:forum');
+  });
+
+  // The exit resolver answers the in-network names first, and the Settings tab
+  // shows the "In use" block in the same order.
+  test('the exit resolver is first in the tunnel DNS list', () {
+    const profile = ExitProfile(
+      id: 'e1',
+      name: 'Exit',
+      address: '200::1',
+      dnsAddress: '10.111.222.2',
+    );
+    final ordered = AppState.exitDnsOrderForTest(
+      const AppSettings(
+        exitProfiles: [profile],
+        exitActiveId: 'e1',
+        exitDnsEnabled: true,
+        dnsServers: ['308:84:68:55::', '10.111.222.2'],
+      ),
+    );
+
+    expect(ordered.dnsServers, ['10.111.222.2', '308:84:68:55::']);
+  });
+
+  test('a hand-added exit resolver keeps its place when the switch is off', () {
+    const profile = ExitProfile(
+      id: 'e1',
+      name: 'Exit',
+      address: '200::1',
+      dnsAddress: '10.111.222.2',
+    );
+    final ordered = AppState.exitDnsOrderForTest(
+      const AppSettings(
+        exitProfiles: [profile],
+        exitActiveId: 'e1',
+        dnsServers: ['308:84:68:55::', '10.111.222.2'],
+      ),
+    );
+
+    expect(ordered.dnsServers.first, '308:84:68:55::');
+  });
 }

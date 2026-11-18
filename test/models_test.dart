@@ -64,6 +64,17 @@ void main() {
       const settings = AppSettings(dnsServers: [' 308:84:68:55:: ', '']);
       expect(settings.effectiveDns, ['308:84:68:55::']);
     });
+
+    test('the startup switches default to off and survive a round-trip', () {
+      const defaults = AppSettings();
+      expect(defaults.connectOnLaunch, isFalse);
+      expect(defaults.startOnBoot, isFalse);
+
+      const settings = AppSettings(connectOnLaunch: true, startOnBoot: true);
+      final restored = AppSettings.fromJson(settings.toJson());
+      expect(restored.connectOnLaunch, isTrue);
+      expect(restored.startOnBoot, isTrue);
+    });
   });
 
   group('PeerEntry', () {

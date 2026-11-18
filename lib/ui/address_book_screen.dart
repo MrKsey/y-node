@@ -105,6 +105,14 @@ class _AddressBookScreenState extends State<AddressBookScreen> {
                 ),
               ]
             : [
+                if (state.hiddenServices.isNotEmpty)
+                  IconButton(
+                    tooltip: l10n.tf('restoreBuiltInsCount', [
+                      state.hiddenServices.length,
+                    ]),
+                    onPressed: () => _restoreBuiltIns(context),
+                    icon: const Icon(Icons.restore_rounded),
+                  ),
                 IconButton(
                   tooltip: l10n.t('bookSelect'),
                   onPressed: items.isEmpty
@@ -223,6 +231,19 @@ class _AddressBookScreenState extends State<AddressBookScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  /// Brings back the built-in entries the user deleted. The button is only
+  /// shown while there is something to restore, as on the desktop app.
+  Future<void> _restoreBuiltIns(BuildContext context) async {
+    final state = context.read<AppState>();
+    final l10n = state.l10n;
+    final restored = await state.restoreBuiltIns();
+    if (!context.mounted) return;
+    showSnack(
+      context,
+      restored > 0 ? l10n.t('builtInsRestored') : l10n.t('importNothing'),
     );
   }
 
