@@ -48,9 +48,22 @@ class YggVpnService : VpnService() {
          *  notification panel after a boot and waits for the user. */
         const val ACTION_IDLE = "com.yggnode.app.action.IDLE"
 
+        /** Marks a connect that came from the panel instead of the UI. A
+         *  failure then has to stay visible: the activity is not on screen to
+         *  show the error. */
+        const val EXTRA_FROM_PANEL = "com.yggnode.app.extra.FROM_PANEL"
+
         private const val CHANNEL_ID = "y_node_tunnel"
+        private const val ALERTS_CHANNEL_ID = "y_node_alerts"
         private const val NOTIFICATION_ID = 1001
+        private const val FAILURE_NOTIFICATION_ID = 1002
         private const val WAKEUP_REQUEST = 42
+
+        /** How many times the tun is requested before the connect is given up.
+         *  Right after a reboot the system can refuse the interface for a
+         *  moment, and the panel action used to fail on the first try. */
+        private const val ESTABLISH_ATTEMPTS = 3
+        private const val ESTABLISH_RETRY_MS = 1_500L
 
         /** While the screen is off the CPU is allowed to suspend, and the Go
          *  timers of the node — the peer supervisor and the exit health loop —
@@ -360,6 +373,17 @@ class YggVpnService : VpnService() {
     @Volatile
     private var idle = false
 
+    /** True once the Go node of this service instance was started. The node
+     *  has to be stopped on every teardown: a connect that failed after it was
+     *  started used to leave it running, and the next attempt then started a
+     *  second node with the same identity. */
+    @Volatile
+    private var nodeStarted = false
+
+    /** True when the running connect was requested from the panel. */
+    @Volatile
+    private var panelConnect = false
+
     @Volatile
     private var lastEstablishedAt = 0L
 
@@ -417,14 +441,16 @@ class YggVpnService : VpnService() {
                 // The five second foreground deadline is unforgiving: show the
                 // notification before doing anything slow.
                 idle = false
+                panelConnect = intent?.getBooleanExtra(EXTRA_FROM_PANEL, false) == true
                 goForeground(VpnState.STATUS_CONNECTING, "")
                 stopRequested = false
-                worker.execute { handleConnect() }
+                worker.execute { runConnect() }
                 START_STICKY
             }
 
             ACTION_IDLE -> {
                 idle = true
+                panelConnect = false
                 goForeground(VpnState.STATUS_DISCONNECTED, "Waiting in the background")
                 START_STICKY
             }
@@ -438,10 +464,22 @@ class YggVpnService : VpnService() {
                 // A connect may still be queued: make it stop before it builds
                 // anything, then tear down what is already up.
                 idle = false
+                panelConnect = false
                 stopRequested = true
                 worker.execute { handleDisconnect(userInitiated = true) }
                 START_NOT_STICKY
             }
+        }
+    }
+
+    /** Runs one connect on the worker. A crash here used to kill the thread
+     *  and leave the panel on "Connecting…" for good. */
+    private fun runConnect() {
+        try {
+            handleConnect()
+        } catch (t: Throwable) {
+            ConnectionLog.append("ERROR", "connect crashed: ${t.message}")
+            fail("connect_failed", t.message ?: "Could not start the tunnel")
         }
     }
 
@@ -488,6 +526,17 @@ class YggVpnService : VpnService() {
             bridge?.stop()
             bridge = null
             closeDescriptor()
+            // A node started by an attempt that never reached the data path has
+            // no bridge to stop it: leaving it up in a live process started a
+            // second node with the same identity on the next connect.
+            if (nodeStarted) {
+                nodeStarted = false
+                try {
+                    node.stop()
+                } catch (t: Throwable) {
+                    ConnectionLog.append("WARN", "node stop failed: ${t.message}")
+                }
+            }
         }
         worker.shutdown()
         super.onDestroy()
@@ -503,12 +552,15 @@ class YggVpnService : VpnService() {
             return
         }
         idle = false
-        if (isActive && node.isRunning) {
-            // A connect while the tunnel is still up means the settings changed
-            // (the split-tunnel list is read only on start): tear the old link
-            // down and build it again instead of ignoring the request, which
-            // used to leave the new list unapplied while the UI said otherwise.
-            ConnectionLog.append("SERVICE", "connect while the tunnel is up, restarting")
+        if (nodeStarted || node.isRunning) {
+            // A connect while a node is still up means either the settings
+            // changed (the split-tunnel list is read only on start) or a
+            // previous attempt died after starting the node: tear it down and
+            // build the link again from the stored settings and peers. Leaving
+            // it running started a second node with the same identity, and the
+            // exit node then saw two clients for one address, which is why the
+            // exit link only came back after a force-stop.
+            ConnectionLog.append("SERVICE", "connect with a running node, restarting")
             teardown(keepState = true)
         }
         stopping = false
@@ -630,7 +682,15 @@ class YggVpnService : VpnService() {
                 }
                 append("]}")
             }
+            // A node from a previous attempt must never stay up: two nodes with
+            // one key look like two clients to the exit node.
+            if (node.isRunning) {
+                ConnectionLog.append("WARN", "the node was still running, stopping it first")
+                node.stop()
+                nodeStarted = false
+            }
             node.start(cfg)
+            nodeStarted = true
             ConnectionLog.append(
                 "SERVICE",
                 "node started: ${node.address} mtu=${node.mtu}",
@@ -715,13 +775,38 @@ class YggVpnService : VpnService() {
             }
         }
 
-        descriptor = try {
-            builder.establish()
-        } catch (t: Throwable) {
-            ConnectionLog.append("ERROR", "establish failed: ${t.message}")
-            null
-        }
+        descriptor = establishWithRetry(builder)
         return descriptor != null
+    }
+
+    /**
+     * Requests the tun interface, retrying a few times. Right after a reboot the
+     * system can refuse the interface for a moment: the panel action then failed
+     * with `vpn_permission` on its first attempt and the user had to open the
+     * app and press Connect again.
+     */
+    private fun establishWithRetry(builder: Builder): ParcelFileDescriptor? {
+        for (attempt in 1..ESTABLISH_ATTEMPTS) {
+            try {
+                val fd = builder.establish()
+                if (fd != null) return fd
+                ConnectionLog.append("WARN", "establish returned null (attempt $attempt)")
+            } catch (t: Throwable) {
+                ConnectionLog.append(
+                    "WARN",
+                    "establish failed (attempt $attempt): ${t.message}",
+                )
+            }
+            if (attempt < ESTABLISH_ATTEMPTS) {
+                try {
+                    Thread.sleep(ESTABLISH_RETRY_MS)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return null
+                }
+            }
+        }
+        return null
     }
 
     private fun startDataPath() {
@@ -798,6 +883,18 @@ class YggVpnService : VpnService() {
         bridge?.stop()
         bridge = null
         closeDescriptor()
+        // The bridge stops the node on its way out, but a connect that failed
+        // before the data path existed left the node running: the next attempt
+        // then started a second node with the same key, and the exit node saw
+        // two clients for one address.
+        if (nodeStarted) {
+            nodeStarted = false
+            try {
+                node.stop()
+            } catch (t: Throwable) {
+                ConnectionLog.append("WARN", "node stop failed: ${t.message}")
+            }
+        }
         isActive = false
         if (!keepState) {
             VpnState.reset()
@@ -816,15 +913,61 @@ class YggVpnService : VpnService() {
         ConnectionLog.append("ERROR", "$code: $message")
         teardown(keepState = false)
         isActive = false
+        idle = false
         VpnState.update {
             it.copy(
                 status = VpnState.STATUS_DISCONNECTED,
                 error = code,
             )
         }
-        goForeground(VpnState.STATUS_DISCONNECTED, message)
+        // A connect started from the panel used to make the notification vanish
+        // without a word: the activity was not on screen to show the error, so
+        // the user saw the tunnel disappear and had to guess why. Keep a short
+        // note that opens the app instead.
+        if (panelConnect) {
+            panelConnect = false
+            notifyFailure(code, message)
+        }
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    /** A plain, dismissible notification that explains a failed connect. */
+    private fun notifyFailure(code: String, message: String) {
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        val open = PendingIntent.getActivity(
+            this,
+            3,
+            Intent(this, Class.forName("com.yggnode.app.MainActivity"))
+                .setFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP,
+                ),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val body = if (code == "vpn_permission") {
+            "$message. Open Y-Node and allow the VPN connection."
+        } else {
+            message
+        }
+        val notification = NotificationCompat.Builder(this, ALERTS_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_tile)
+            .setContentTitle("Could not connect")
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .setShowWhen(false)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setCategory(NotificationCompat.CATEGORY_ERROR)
+            .setContentIntent(open)
+            .build()
+        try {
+            manager.notify(FAILURE_NOTIFICATION_ID, notification)
+        } catch (t: Throwable) {
+            ConnectionLog.append("WARN", "failure notification failed: ${t.message}")
+        }
     }
 
     private fun onDataPathFailure(t: Throwable) {
@@ -1225,6 +1368,18 @@ class YggVpnService : VpnService() {
     private fun createChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = getSystemService(NotificationManager::class.java) ?: return
+        if (manager.getNotificationChannel(ALERTS_CHANNEL_ID) == null) {
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    ALERTS_CHANNEL_ID,
+                    "Connection problems",
+                    NotificationManager.IMPORTANCE_DEFAULT,
+                ).apply {
+                    description = "A connect started from the notification failed"
+                    setShowBadge(true)
+                },
+            )
+        }
         if (manager.getNotificationChannel(CHANNEL_ID) != null) return
         val channel = NotificationChannel(
             CHANNEL_ID,
@@ -1342,15 +1497,16 @@ class YggVpnService : VpnService() {
     }
 
     private fun buildNotification(status: String, detail: String): Notification {
+        val openIntent = Intent(this, Class.forName("com.yggnode.app.MainActivity"))
+            .setFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP,
+            )
         val open = PendingIntent.getActivity(
             this,
             0,
-            Intent(this, Class.forName("com.yggnode.app.MainActivity"))
-                .setFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP,
-                ),
+            openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val stop = PendingIntent.getService(
@@ -1359,12 +1515,31 @@ class YggVpnService : VpnService() {
             Intent(this, YggVpnService::class.java).setAction(ACTION_DISCONNECT),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val start = PendingIntent.getService(
-            this,
-            2,
-            Intent(this, YggVpnService::class.java).setAction(ACTION_CONNECT),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
+        // Without the VPN consent nothing can be established from the panel:
+        // Android only shows the consent dialog over an activity, so the action
+        // opens the app instead of failing a second later.
+        val needsConsent = idle && try {
+            VpnService.prepare(this) != null
+        } catch (_: Throwable) {
+            false
+        }
+        val start = if (needsConsent) {
+            PendingIntent.getActivity(
+                this,
+                2,
+                openIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+        } else {
+            PendingIntent.getService(
+                this,
+                2,
+                Intent(this, YggVpnService::class.java)
+                    .setAction(ACTION_CONNECT)
+                    .putExtra(EXTRA_FROM_PANEL, true),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+        }
 
         val title = if (idle) "Y-Node" else notificationTitle(status)
         val body = notificationBody(status, detail)

@@ -4,6 +4,15 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.9] — 2026-11-18
+
+### Fixed
+
+- A connect started from the notification panel no longer disappears without a word. When it fails, a "Could not connect" notification stays in the panel, explains the reason and opens the app, and the VPN interface is requested up to three times because Android can refuse it for a moment right after a reboot.
+- A connect that failed after the Yggdrasil node had started no longer leaves that node running in the background. The next attempt used to start a second node with the same identity, so the exit node saw two clients for one address and the exit link stayed down until the app was force-stopped and started again.
+- The Connect action of the panel opens the app when Android has not yet been asked to allow the VPN connection, because that question can only be shown over an app window.
+- An unexpected error in the connect path is reported in the panel instead of leaving the notification on "Connecting…".
+
 ## [1.5.8] — 2026-11-18
 
 ### Added
