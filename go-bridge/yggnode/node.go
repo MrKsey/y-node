@@ -352,9 +352,11 @@ func (n *Node) Stop() {
 	n.running = false
 	rwc := n.rwc
 	tun := n.tun
+	manager := n.exit
 	n.rwc = nil
 	n.tun = nil
 	n.exit = nil
+	n.exitRaw = ""
 	n.dns = nil
 	n.core = nil
 	n.protector = nil
@@ -363,6 +365,12 @@ func (n *Node) Stop() {
 	n.tunGen++
 	n.mu.Unlock()
 
+	// The UDP association of the exit keeps two sockets and a ticker alive.
+	// Dropping the manager without closing it left them running after the node
+	// was stopped, which looked like a client that was still on the network.
+	if manager != nil {
+		manager.close()
+	}
 	if tun != nil {
 		tun.stop()
 	}

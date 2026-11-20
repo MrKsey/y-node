@@ -4,6 +4,12 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.12] — 2026-11-20
+
+### Fixed
+
+- Disconnecting the tunnel now really leaves the Yggdrasil network. The exit manager kept its UDP association and its sockets after the node was stopped, so the client could stay visible on the exit node and keep a relay open while the app already showed "Disconnected". The association is closed together with the node, the same way the desktop core now does it.
+
 ## [1.5.11] — 2026-11-20
 
 ### Fixed

@@ -20,6 +20,8 @@ Y-Node simplifies connecting an Android device to Yggdrasil and managing network
 
 To access the regular Internet through Yggdrasil, Y-Node supports **[X-Node](https://github.com/MrKsey/x-node)** servers. X-Node is deployed on Ubuntu and provides client connections via a QR code. Y-Node imports connection parameters from such a QR code.
 
+A desktop companion is available as **[Y-Node Desktop](https://github.com/MrKsey/y-node-desktop)**: the same Yggdrasil client for Windows, macOS and Linux, working in proxy mode and supporting the same X-Node exit links.
+
 ```text
 Yggdrasil resources only, no exit node
 
