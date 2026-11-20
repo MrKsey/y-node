@@ -124,9 +124,19 @@ class _AddressBookScreenState extends State<AddressBookScreen> {
                   icon: const Icon(Icons.checklist_rounded),
                 ),
                 IconButton(
-                  tooltip: l10n.t('browseDirectory'),
-                  onPressed: () => _browseDirectory(context),
-                  icon: const Icon(Icons.cloud_download_outlined),
+                  tooltip: state.loadingDirectory
+                      ? l10n.t('directoryLoading')
+                      : l10n.t('browseDirectory'),
+                  onPressed: state.loadingDirectory
+                      ? null
+                      : () => _browseDirectory(context),
+                  icon: state.loadingDirectory
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.cloud_download_outlined),
                 ),
               ],
       ),
@@ -159,6 +169,11 @@ class _AddressBookScreenState extends State<AddressBookScreen> {
               ),
             ),
           ),
+          if (state.loadingDirectory)
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: LinearProgressIndicator(minHeight: 3),
+            ),
           if (items.isNotEmpty && !_selecting && _query.isEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 6),
@@ -185,8 +200,16 @@ class _AddressBookScreenState extends State<AddressBookScreen> {
                     icon: Icons.book_outlined,
                     title: l10n.t('bookEmpty'),
                     action: FilledButton.tonalIcon(
-                      onPressed: () => _browseDirectory(context),
-                      icon: const Icon(Icons.cloud_download_outlined, size: 18),
+                      onPressed: state.loadingDirectory
+                          ? null
+                          : () => _browseDirectory(context),
+                      icon: state.loadingDirectory
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.cloud_download_outlined, size: 18),
                       label: Text(l10n.t('browseDirectory')),
                     ),
                   )
@@ -531,10 +554,14 @@ class _AddressBookScreenState extends State<AddressBookScreen> {
   }
 
   /// The cloud button reads the Yggdrasil web directory through the node.
-  /// Without a tunnel there is nothing to read, so the user is told why.
+  /// Without a tunnel there is nothing to read, so the user is told why. The
+  /// read runs before the sheet opens: the button turns into a spinner while
+  /// it lasts, and a failure is reported with a snackbar on this screen
+  /// instead of the tunnel card.
   Future<void> _browseDirectory(BuildContext context) async {
     final state = context.read<AppState>();
     final l10n = state.l10n;
+    if (state.loadingDirectory) return;
     if (!state.isConnected) {
       final connect = await showDialog<bool>(
         context: context,
@@ -555,6 +582,15 @@ class _AddressBookScreenState extends State<AddressBookScreen> {
       );
       if (connect == true) await state.connect();
       return;
+    }
+    if (state.directoryResources.isEmpty) {
+      await state.loadDirectory();
+      if (!context.mounted) return;
+      final failure = state.directoryError;
+      if (failure != null) {
+        showSnack(context, l10n.t(failure));
+        return;
+      }
     }
     // The sheet only picks the entries; the import happens here, after it has
     // closed. Doing the write while the sheet was still on screen made the
@@ -751,18 +787,6 @@ class _DirectorySheet extends StatefulWidget {
 
 class _DirectorySheetState extends State<_DirectorySheet> {
   final Set<String> _selected = {};
-  bool _started = false;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (_started) return;
-    _started = true;
-    final state = context.read<AppState>();
-    if (state.directoryResources.isEmpty && !state.loadingDirectory) {
-      state.loadDirectory();
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -832,7 +856,7 @@ class _DirectorySheetState extends State<_DirectorySheet> {
                 : items.isEmpty
                 ? EmptyHint(
                     icon: Icons.cloud_off_rounded,
-                    title: state.lastError == 'directoryEmpty'
+                    title: state.directoryError == 'directoryEmpty'
                         ? l10n.t('directoryEmpty')
                         : l10n.t('directoryFailed'),
                     body: l10n.t('directoryHint'),

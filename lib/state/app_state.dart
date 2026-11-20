@@ -203,6 +203,11 @@ class AppState extends ChangeNotifier {
   List<Resource> directoryResources = const [];
   bool loadingDirectory = false;
 
+  /// A translation key of the last directory read, or null. It is kept apart
+  /// from [lastError] so a failed import is reported on the Services screen
+  /// instead of the tunnel card.
+  String? directoryError;
+
   List<InstalledApp> installedApps = const [];
   bool loadingApps = false;
 
@@ -2517,12 +2522,12 @@ class AppState extends ChangeNotifier {
   Future<void> loadDirectory() async {
     if (loadingDirectory) return;
     loadingDirectory = true;
-    lastError = null;
+    directoryError = null;
     notifyListeners();
     try {
       final fetched = await Native.fetchUrl(directoryUrl);
       if (!fetched.ok) {
-        lastError = 'directoryFailed';
+        directoryError = 'directoryFailed';
         return;
       }
       final known = {for (final item in resources) item.url};
@@ -2533,7 +2538,7 @@ class AppState extends ChangeNotifier {
         ))
           if (!known.contains(item.url)) item,
       ];
-      if (directoryResources.isEmpty) lastError = 'directoryEmpty';
+      if (directoryResources.isEmpty) directoryError = 'directoryEmpty';
     } finally {
       loadingDirectory = false;
       notifyListeners();
@@ -2774,6 +2779,9 @@ class AppState extends ChangeNotifier {
     }
     if (added.isEmpty) return 0;
     resources = [...resources, ...added];
+    // The next browse reads the directory again, so entries published after
+    // this import are picked up.
+    directoryResources = const [];
     // The book has to show the new entries at once: the write below goes
     // through the platform channel and must never hold the list back.
     notifyListeners();

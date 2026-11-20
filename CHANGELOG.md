@@ -4,6 +4,14 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.10] — 2026-11-20
+
+### Changed
+
+- **Services → Browse the web directory** now shows a spinner in the button and a progress bar while the directory is read through the tunnel, and the button stays disabled until the read is over, so a second tap cannot start another load. The desktop app works the same way.
+- A directory read that fails or finds nothing new is reported with a notification on the Services screen itself instead of the error line under the tunnel button.
+- After an import the next browse reads the directory again, so entries published later are not missing from the list.
+
 ## [1.5.9] — 2026-11-18
 
 ### Fixed
