@@ -566,6 +566,16 @@ void main() {
     expect(active.ipv6Available, isFalse);
     expect(active.ipv6Broken, isTrue);
     expect(active.ipv6Missing, isFalse);
+    expect(active.ipv6Off, isFalse);
+    // An operator who turned IPv6 off on the exit gets its own state: the card
+    // has to say why IPv6 is not used instead of promising a path.
+    final off = ExitStatus.tryParse(
+      '{"enabled":true,"activeId":"a","profiles":[{"id":"a",'
+      '"state":"online","ipv6Available":false,"ipv6State":"off"}]}',
+    );
+    expect(off!.active!.ipv6Off, isTrue);
+    expect(off.active!.ipv6Broken, isFalse);
+    expect(off.active!.ipv6Missing, isFalse);
     // An old exit does not send the field: the app must not claim a state it
     // does not know.
     final old = ExitStatus.tryParse(

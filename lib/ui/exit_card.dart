@@ -45,12 +45,15 @@ class ExitNodeCard extends StatelessWidget {
     // the tunnel stops sending IPv6 traffic and the card says why.
     final ipv6Broken = active?.ipv6Broken ?? false;
     final ipv6Missing = active?.ipv6Missing ?? false;
-    final ipv6Hint = ipv6Broken
+    final ipv6Off = active?.ipv6Off ?? false;
+    final ipv6Hint = ipv6Off
+        ? l10n.t('exitIpv6OffHint')
+        : ipv6Broken
         ? l10n.t('exitIpv6BrokenHint')
         : ipv6Missing
         ? l10n.t('exitIpv6NoneHint')
         : l10n.t('exitIpv6Hint');
-    final ipv6Color = ipv6Broken || ipv6Missing
+    final ipv6Color = ipv6Broken || ipv6Missing || ipv6Off
         ? Colors.orange
         : theme.colorScheme.primary;
     // The profile's pinned peer is the direct link to the exit node. When that
@@ -205,11 +208,15 @@ class ExitNodeCard extends StatelessWidget {
                   l10n.t('exitIpv6Title'),
                   style: theme.textTheme.bodyMedium,
                 ),
-                if (ipv6Broken || ipv6Missing) ...[
+                if (ipv6Broken || ipv6Missing || ipv6Off) ...[
                   const SizedBox(width: 8),
                   StatusPill(
                     label: l10n.t(
-                      ipv6Broken ? 'exitIpv6BrokenShort' : 'exitIpv6NoneShort',
+                      ipv6Off
+                          ? 'exitIpv6OffShort'
+                          : ipv6Broken
+                          ? 'exitIpv6BrokenShort'
+                          : 'exitIpv6NoneShort',
                     ),
                     color: Colors.orange,
                   ),

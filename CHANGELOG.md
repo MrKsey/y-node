@@ -4,6 +4,12 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.11] — 2026-11-20
+
+### Fixed
+
+- The exit node card shows when IPv6 is turned off on the server: an **IPv6 off** pill and a hint that only IPv4 traffic goes through the exit, instead of the generic line that promised global IPv6 addresses would go through it. The exit is polled in the background (every 15 seconds by default), so a change on the server appears without pressing **Check now**.
+
 ## [1.5.10] — 2026-11-20
 
 ### Changed

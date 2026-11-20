@@ -407,12 +407,16 @@ class L10n {
     'exitSocksOnlySaved': 'Exit node saved as a SOCKS5 proxy',
     'exitIpv6BrokenShort': 'IPv6 not routed',
     'exitIpv6NoneShort': 'No IPv6',
+    'exitIpv6OffShort': 'IPv6 off',
     'exitIpv6BrokenHint':
         'The exit has an IPv6 address, but its provider does not route IPv6. '
         'IPv6 traffic is not sent through this exit.',
     'exitIpv6NoneHint':
         'The exit has no global IPv6 address. IPv6 traffic is not sent '
         'through this exit.',
+    'exitIpv6OffHint':
+        'IPv6 is turned off on the exit node. Only IPv4 traffic goes through '
+        'this exit.',
     'exitPeer': 'Peer address',
     'exitPeerHint': 'tls://host:port?key=…',
     'exitPeerHelper':

@@ -548,6 +548,11 @@ class ExitProfileStatus {
   /// True when the exit has no global IPv6 address at all.
   bool get ipv6Missing => ipv6Available == false && ipv6State == 'none';
 
+  /// True when the exit operator turned IPv6 off for outbound connections.
+  /// The tunnel then carries IPv4 only, and the card says so instead of
+  /// promising a path the exit will not use.
+  bool get ipv6Off => ipv6Available == false && ipv6State == 'off';
+
   /// Refusals caused by the connection limit, excluding quota and suspension
   /// refusals. A server from 1.6.11 reports the value directly; an older one
   /// only has the two counters, so the difference is used instead.
