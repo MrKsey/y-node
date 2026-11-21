@@ -432,7 +432,11 @@ class _ResultsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final alive = state.probeAlive;
+    // The card shows the rows in the same order the button ranks them: the
+    // fastest first. Otherwise the button could keep a peer that the list
+    // showed below the fold, which looked like it came from nowhere.
+    final alive = [...state.probeAlive]
+      ..sort((a, b) => a.latencyMs.compareTo(b.latencyMs));
     // The tunnel keeps the configured number of links, so the button replaces
     // the slowest of them instead of appending more.
     final target = state.settings.peerCount;

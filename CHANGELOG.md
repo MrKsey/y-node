@@ -4,6 +4,12 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.14] — 2026-11-21
+
+### Fixed
+
+- The Results card is sorted by latency, in the same order "Add the best" ranks it, so the peers the button keeps are the rows at the top of the card.
+
 ## [1.5.13] — 2026-11-21
 
 ### Fixed
