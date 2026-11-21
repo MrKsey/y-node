@@ -633,6 +633,7 @@ class L10n {
     'yggVersion': 'Yggdrasil version',
     'yggAddress': 'Node address',
     'sourceCode': 'Source code',
+    'clientSourceHint': 'github.com/MrKsey/y-node',
     'yggSource': 'Yggdrasil source code',
     'yggSourceHint': 'github.com/yggdrasil-network/yggdrasil-go',
     'linkFailed': 'Could not open the link',

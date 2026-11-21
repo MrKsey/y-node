@@ -61,10 +61,16 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    final app = context.read<AppState>();
     if (state == AppLifecycleState.resumed) {
       // The service may have replaced peers while the app was in the background.
-      context.read<AppState>().refreshFromStore();
+      app.resumePolling();
+      app.refreshFromStore();
+      return;
     }
+    // The tunnel lives in the service: the window has nothing to poll while it
+    // is not on screen.
+    app.pausePolling();
   }
 
   void _go(int index) => setState(() => _index = index);

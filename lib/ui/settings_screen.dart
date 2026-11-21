@@ -633,6 +633,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               InfoRow(
                 label: l10n.t('sourceCode'),
+                value: l10n.t('clientSourceHint'),
+                onTap: () => _openClientSource(context, l10n),
+              ),
+              InfoRow(
+                label: l10n.t('yggSource'),
                 value: l10n.t('yggSourceHint'),
                 onTap: () => _openYggdrasilSource(context, l10n),
               ),
@@ -677,6 +682,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     }
     return null;
+  }
+
+  static Future<void> _openClientSource(BuildContext context, L10n l10n) async {
+    final opened = await launchUrl(
+      Uri.parse('https://github.com/MrKsey/y-node'),
+      mode: LaunchMode.externalApplication,
+    );
+    if (!opened && context.mounted) {
+      showSnack(context, l10n.t('linkFailed'));
+    }
   }
 
   static Future<void> _openYggdrasilSource(

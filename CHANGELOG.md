@@ -4,6 +4,14 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.15] — 2026-11-21
+
+### Fixed
+
+- DNS resolution now matches the desktop client: the resolvers of one group are queried in parallel and the first usable answer wins, so one dead Yggdrasil resolver no longer delays every `.ygg` name by its timeout. Each group (exit, local, system) has its own three-second budget instead of one shared timeout, and an error answer is no longer cached for thirty seconds.
+- The **Source code** line in **Settings → About** opens `https://github.com/MrKsey/y-node`; the yggdrasil-go link is a separate row.
+- The status polling stops while the app is in the background and resumes when it comes back to the foreground, so the client no longer polls the node and the exit from a hidden window.
+
 ## [1.5.14] — 2026-11-21
 
 ### Fixed

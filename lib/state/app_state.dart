@@ -498,6 +498,22 @@ class AppState extends ChangeNotifier {
     _poll = Timer.periodic(const Duration(seconds: 1), (_) => _pollState());
   }
 
+  /// Stops the one-second poll while the app is not on screen. The tunnel is
+  /// owned by the service and keeps running; the window reads a fresh snapshot
+  /// when it comes back. A timer that kept waking the app in the background is
+  /// what the system reports as idle CPU use.
+  void pausePolling() {
+    _poll?.cancel();
+    _poll = null;
+  }
+
+  /// Restarts the poll after the app returns to the foreground.
+  void resumePolling() {
+    if (_poll != null) return;
+    _startPolling();
+    unawaited(_pollState());
+  }
+
   Future<void> _pollState() async {
     if (_polling) return;
     _polling = true;
