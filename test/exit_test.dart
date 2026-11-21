@@ -32,6 +32,27 @@ void main() {
     );
   });
 
+  // A real link printed by the X-Node dashboard: every value is percent
+  // encoded, and the invite has to survive the decoding intact.
+  test('a percent-encoded dashboard link is parsed', () {
+    final invite = ExitInvite.parse(
+      'yggnode://exit?a=202%3Ab8a9%3A3d1e%3A41da%3Aeca6%3Adb32%3Aad7a%3A9ee8'
+      '&api=1080&i=io5VqRLGISm5-YNjujgQ_agl-tv19hjkpwcukRT3rNQ&n=Germany'
+      '&p=1080&peer=wss%3A%2F%2F152.234.225.197%3A443%2Fygg%3Fkey%3D'
+      '28ead85c37c4a26b2499aa50ac22e906149de5eab5dd1ea37e0ed529adf26973&v=1',
+    );
+    expect(invite, isNotNull);
+    expect(invite!.profile.address, '202:b8a9:3d1e:41da:eca6:db32:ad7a:9ee8');
+    expect(invite.profile.name, 'Germany');
+    expect(invite.invite, 'io5VqRLGISm5-YNjujgQ_agl-tv19hjkpwcukRT3rNQ');
+    expect(
+      invite.profile.peer,
+      'wss://152.234.225.197:443/ygg?key='
+      '28ead85c37c4a26b2499aa50ac22e906149de5eab5dd1ea37e0ed529adf26973',
+    );
+    expect(invite.profile.apiPort, 1080);
+  });
+
   test('a link without an invite is a plain SOCKS5 profile', () {
     // This is the link an exit shows for a client that is already allowed,
     // for example after the profile was deleted in the app.

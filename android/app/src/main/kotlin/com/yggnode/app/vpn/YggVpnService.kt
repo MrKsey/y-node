@@ -1330,6 +1330,11 @@ class YggVpnService : VpnService() {
         val profile = current.exitProfiles.firstOrNull {
             it.id == current.exitActiveId
         } ?: current.exitProfiles.firstOrNull() ?: return false
+        // A profile without a token has not redeemed its invite yet. An empty
+        // invite is only accepted for an address that is already allowlisted,
+        // so asking here would just fill the exit log with "invite_invalid";
+        // the app redeems the stored invite as soon as the tunnel is up.
+        if (profile.token.isBlank()) return true
         val device = try {
             Build.MODEL ?: "Android"
         } catch (_: Throwable) {

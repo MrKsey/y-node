@@ -437,6 +437,8 @@ class L10n {
     'exitInviteMissing': 'No invite token. Scan the server QR code again.',
     'exitNeedTunnel':
         'Connect the tunnel first: registration goes through Yggdrasil.',
+    'exitInvitePending':
+        'Invite saved. It is redeemed as soon as the tunnel connects.',
     'exitReconnectHint': 'Changes take effect after the tunnel reconnects',
     'exitFallbackDirect': 'Use the direct connection if the exit is down',
     'exitFallbackHint':

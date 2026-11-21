@@ -1,4 +1,4 @@
-import 'dart:io';
+﻿import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -366,7 +366,7 @@ class _ExitProfilesScreenState extends State<ExitProfilesScreen> {
       // token is added.
       if (mounted) showSnack(context, l10n.t('exitSocksOnlySaved'));
     } else if (!state.snapshot.isConnected) {
-      if (mounted) showSnack(context, l10n.t('exitNeedTunnel'));
+      if (mounted) showSnack(context, l10n.t('exitInvitePending'));
       return;
     } else {
       await _register(state, invite.profile, invite: invite.invite);
@@ -416,7 +416,7 @@ class _ExitProfilesScreenState extends State<ExitProfilesScreen> {
     // address, so a manual entry redeems it at once. Otherwise the profile
     // stays unregistered until the user finds "Retry registration".
     if (!state.snapshot.isConnected) {
-      showSnack(context, l10n.t('exitNeedTunnel'));
+      showSnack(context, l10n.t('exitInvitePending'));
       return;
     }
     await _register(state, profile, invite: invite);
@@ -457,7 +457,7 @@ class _ExitProfilesScreenState extends State<ExitProfilesScreen> {
       return;
     }
     if (!state.snapshot.isConnected) {
-      showSnack(context, l10n.t('exitNeedTunnel'));
+      showSnack(context, l10n.t('exitInvitePending'));
       return;
     }
     setState(() => _registering = profile.id);

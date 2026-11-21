@@ -4,6 +4,14 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.16] — 2026-11-21
+
+### Fixed
+
+- An invite scanned while the tunnel is down is now redeemed by itself once the tunnel connects. The profile was stored with its invite, but the registration needs Yggdrasil and was never retried: the service only refreshed its own fields with an empty invite, which X-Node refuses for an address that is not allowlisted yet, so the exit showed **API access is limited** with an empty API field while the invite stayed unused. The app now redeems every stored invite as soon as the link carries traffic, retries while the exit peer finishes its handshake, and saves the API token it receives.
+- The service no longer sends an empty registration for a profile that has not redeemed its invite yet, so the exit log is not filled with `invite_invalid`.
+- The hint after scanning an invite without a running tunnel says the invite is saved and will be redeemed on connect, instead of asking to connect first.
+
 ## [1.5.15] — 2026-11-21
 
 ### Fixed

@@ -274,6 +274,14 @@ class AppState extends ChangeNotifier {
   /// True while the IPv6 self-check runs.
   bool testingIpv6 = false;
 
+  /// True while the stored invites are being redeemed.
+  bool _redeemingInvites = false;
+
+  /// Profiles whose invite is settled: redeemed, or refused for good (expired,
+  /// used, unknown). The retry loop leaves them alone instead of filling the
+  /// exit log.
+  final Set<String> _settledInvites = {};
+
   /// The user asked not to see the "add the browser to the VPN" hint again.
   bool browserHintDismissed = false;
 
@@ -562,6 +570,9 @@ class AppState extends ChangeNotifier {
     // node shows its flag on the first connection instead of the next launch.
     if (!wasConnected && next.isConnected) {
       unawaited(_resolveExitCountries());
+      // A profile imported while the tunnel was down still carries its unused
+      // invite: redeem it now that the exit is reachable.
+      unawaited(_redeemPendingInvites());
     }
     if (next.exit.updatedAt > 0) _exitChecked = null;
     // A manual check belongs to the session it ran in: while the tunnel is
@@ -1675,6 +1686,77 @@ class AppState extends ChangeNotifier {
     return applied;
   }
 
+  /// Redeems the invite of every profile that carries one but has no token
+  /// yet. A profile imported from a QR code while the tunnel was down is only
+  /// stored: the registration needs Yggdrasil, so it cannot run at that
+  /// moment. The service then sends its own refresh with an empty invite,
+  /// which the exit refuses for an address that is not allowlisted yet, and
+  /// the profile stays without API access. This runs as soon as the tunnel
+  /// carries traffic, and retries while the exit peer finishes its handshake.
+  Future<void> _redeemPendingInvites() async {
+    if (_redeemingInvites) return;
+    _redeemingInvites = true;
+    try {
+      for (var attempt = 0; attempt < 20; attempt++) {
+        if (!snapshot.isConnected) return;
+        final pending = [
+          for (final profile in settings.exitProfiles)
+            if (profile.invite.trim().isNotEmpty &&
+                profile.token.trim().isEmpty &&
+                !_settledInvites.contains(_inviteKey(profile)))
+              profile,
+        ];
+        if (pending.isEmpty) return;
+        var progressed = false;
+        for (final profile in pending) {
+          if (!snapshot.isConnected) return;
+          final result = await Native.registerExit(
+            profileId: profile.id,
+            invite: profile.invite.trim(),
+            label: _exitLabel,
+          );
+          if (result == null) continue;
+          if (result.ok) {
+            progressed = true;
+            _settledInvites.add(_inviteKey(profile));
+            final dns = result.dnsAddress;
+            if (result.token.isNotEmpty ||
+                (dns.isNotEmpty && dns != profile.dnsAddress)) {
+              await updateExitProfile(
+                profile.copyWith(
+                  token: result.token.isNotEmpty ? result.token : null,
+                  dnsAddress: dns.isNotEmpty ? dns : null,
+                  dnsPort: result.dnsPort > 0 ? result.dnsPort : null,
+                ),
+              );
+            }
+            _exitChecked = await Native.exitStatus();
+            notifyListeners();
+            continue;
+          }
+          switch (result.error) {
+            case 'invite_invalid':
+            case 'invite_expired':
+            case 'invite_used':
+            case 'allowlist_full':
+              // The server will never accept this token: asking again only
+              // fills its log.
+              _settledInvites.add(_inviteKey(profile));
+          }
+        }
+        if (progressed) continue;
+        await Future<void>.delayed(const Duration(seconds: 3));
+      }
+    } finally {
+      _redeemingInvites = false;
+    }
+  }
+
+  /// The retry marker is the pair, not the profile: a new invite entered by
+  /// hand for the same node has to be tried again.
+  static String _inviteKey(ExitProfile profile) =>
+      '${profile.id}|${profile.invite.trim()}';
+
   /// Redeems an invite on [profile]. The profile is stored first so the bridge
   /// can find it, then the request goes through the live tunnel.
   Future<ExitRegistration> registerExit(
@@ -1711,6 +1793,12 @@ class AppState extends ChangeNotifier {
         );
       }
       _exitChecked = await Native.exitStatus();
+    } else if (result.error == 'unreachable' ||
+        result.error == 'tunnel_unavailable' ||
+        result.error == 'native_error') {
+      // The exit peer may still be finishing its handshake: keep trying in the
+      // background instead of leaving the profile without API access.
+      unawaited(_redeemPendingInvites());
     }
     notifyListeners();
     return result;
