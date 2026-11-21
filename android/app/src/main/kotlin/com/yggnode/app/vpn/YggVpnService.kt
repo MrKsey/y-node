@@ -1275,8 +1275,12 @@ class YggVpnService : VpnService() {
                     if (!isActive || stopping) break
                 }
                 if (!registered) {
-                    registered = true
-                    refreshRegistration(current)
+                    // The first tick can run before the exit peer finished its
+                    // handshake. Keep trying on the health ticks until the exit
+                    // confirms the registration, otherwise the Clients page of
+                    // X-Node keeps the version from the day the invite was
+                    // redeemed.
+                    registered = refreshRegistration(current)
                 }
                 try {
                     node.checkExitProfiles(
@@ -1317,26 +1321,36 @@ class YggVpnService : VpnService() {
      * allowlisted, so the exit shows the current version after an app update
      * instead of the one from the day the invite was redeemed. An older exit
      * answers "invite_invalid"; that is harmless and only logged.
+     *
+     * Returns true when the exit accepted the refresh. A false result makes the
+     * health loop retry on its next tick, which covers a peer that was still
+     * connecting when the tunnel came up.
      */
-    private fun refreshRegistration(current: Settings) {
+    private fun refreshRegistration(current: Settings): Boolean {
         val profile = current.exitProfiles.firstOrNull {
             it.id == current.exitActiveId
-        } ?: current.exitProfiles.firstOrNull() ?: return
+        } ?: current.exitProfiles.firstOrNull() ?: return false
         val device = try {
             Build.MODEL ?: "Android"
         } catch (_: Throwable) {
             "Android"
         }
-        try {
-            node.registerExit(
+        return try {
+            val raw = node.registerExit(
                 profile.id,
                 "",
                 device,
                 appVersion(),
                 current.exitLabel(device),
             )
+            val ok = JSONObject(raw).optBoolean("ok", false)
+            if (!ok) {
+                ConnectionLog.append("DEBUG", "registration refresh was refused")
+            }
+            ok
         } catch (t: Throwable) {
             ConnectionLog.append("WARN", "registration refresh failed: ${t.message}")
+            false
         }
     }
 

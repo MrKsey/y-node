@@ -682,11 +682,18 @@ func (n *Node) GetExitDNSAddress() string {
 func (n *Node) DisableTun2Socks() {
 	n.mu.Lock()
 	t := n.tun
+	manager := n.exit
 	n.tun = nil
 	n.exit = nil
 	n.dns = nil
 	n.tunGen++
 	n.mu.Unlock()
+	if manager != nil {
+		// The UDP association owns sockets and a ticker: dropping the manager
+		// without closing it kept them alive after the forwarding stack was
+		// rebuilt, which looked like a client still using the exit.
+		manager.close()
+	}
 	if t != nil {
 		t.stop()
 		n.logger.emit("info", "tun2socks stopped")

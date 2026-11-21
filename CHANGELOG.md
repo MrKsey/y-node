@@ -4,6 +4,13 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.13] — 2026-11-21
+
+### Fixed
+
+- The exit node and the X-Node web panel now show the current app version. A registered client registers once per connect to refresh its device name and version; the server accepts an empty invite for an address that is already allowlisted, so no new invite is needed after an upgrade.
+- Rebuilding the forwarding stack no longer leaves the previous exit manager's UDP association and sockets open: the manager is closed together with the old stack.
+
 ## [1.5.12] — 2026-11-20
 
 ### Fixed
