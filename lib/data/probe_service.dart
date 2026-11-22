@@ -62,6 +62,7 @@ class ProbeService {
     int batch = 5,
     int timeoutMs = 8000,
     int targetAlive = defaultTargetAlive,
+    String homeCountry = '',
     void Function(ProbeProgress)? onProgress,
     bool Function()? isCancelled,
   }) async {
@@ -103,8 +104,18 @@ class ProbeService {
       );
     }
 
+    // The home country is probed first, and a round only stops early once
+    // every server of it had its chance. Sorting the whole list by TCP time
+    // alone put a German datacenter ahead of a node next door, and the run then
+    // ended with a list that had no local peers at all.
+    int priorityOf(PeerCandidate candidate) =>
+        homeCountry.isNotEmpty && candidate.country == homeCountry ? 0 : 1;
+    final homeTotal = candidates.where((c) => priorityOf(c) == 0).length;
+
     final ordered = [...candidates];
     ordered.sort((a, b) {
+      final byCountry = priorityOf(a) - priorityOf(b);
+      if (byCountry != 0) return byCountry;
       final aRtt = rtts[a.host] ?? double.infinity;
       final bRtt = rtts[b.host] ?? double.infinity;
       if (aRtt != bRtt) return aRtt.compareTo(bRtt);
@@ -124,7 +135,7 @@ class ProbeService {
           totalCandidates: candidates.length,
         );
       }
-      if (alive.length >= targetAlive) break;
+      if (alive.length >= targetAlive && tested >= homeTotal) break;
 
       final slice = ordered.skip(start).take(batch).toList();
       final uris = [for (final candidate in slice) candidate.uri];
@@ -157,7 +168,16 @@ class ProbeService {
       );
     }
 
-    alive.sort((a, b) => a.latencyMs.compareTo(b.latencyMs));
+    // The fastest answer first, but the servers of the home country stay on
+    // top: that is the order the Results card shows and "Add the best N"
+    // keeps.
+    alive.sort((a, b) {
+      final byCountry =
+          (homeCountry.isNotEmpty && a.country == homeCountry ? 0 : 1) -
+          (homeCountry.isNotEmpty && b.country == homeCountry ? 0 : 1);
+      if (byCountry != 0) return byCountry;
+      return a.latencyMs.compareTo(b.latencyMs);
+    });
     return ProbeSession(
       alive: alive,
       dead: dead,

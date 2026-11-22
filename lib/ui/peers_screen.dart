@@ -100,8 +100,14 @@ class PeersScreen extends StatelessWidget {
                     status: state.statusByUri[peer.uri],
                     l10n: l10n,
                     titleOverride: _exitTitle(state, peer),
+                    // With the exit node switched off its pinned peer can be
+                    // taken out of the list; the lock belongs to an exit that
+                    // is in use.
+                    dismissible: peer.pinned && !state.settings.exitEnabled,
                     onRemove: peer.pinned
-                        ? null
+                        ? (state.settings.exitEnabled
+                              ? null
+                              : () => state.dismissExitPeer())
                         : () => state.removePeer(peer.uri),
                     removeTooltip: l10n.t('removePeer'),
                   ),
@@ -432,11 +438,10 @@ class _ResultsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // The card shows the rows in the same order the button ranks them: the
-    // fastest first. Otherwise the button could keep a peer that the list
-    // showed below the fold, which looked like it came from nowhere.
-    final alive = [...state.probeAlive]
-      ..sort((a, b) => a.latencyMs.compareTo(b.latencyMs));
+    // The card keeps the order the probe produced: the servers of the home
+    // country first, each group by latency. That is exactly the order "Add the
+    // best N" keeps, so the button never picks a row from below the fold.
+    final alive = state.probeAlive;
     // The tunnel keeps the configured number of links, so the button replaces
     // the slowest of them instead of appending more.
     final target = state.settings.peerCount;
@@ -523,6 +528,7 @@ class _PeerTile extends StatelessWidget {
     this.action,
     this.subtitleOverride,
     this.titleOverride,
+    this.dismissible = false,
   });
 
   final PeerEntry peer;
@@ -537,6 +543,11 @@ class _PeerTile extends StatelessWidget {
 
   /// The exit node name for a pinned peer, instead of its bare host.
   final String? titleOverride;
+
+  /// A pinned peer that may be taken out of the active list: the exit node is
+  /// switched off, so the row shows a cross instead of the lock. The peer comes
+  /// back when the exit is switched on.
+  final bool dismissible;
 
   @override
   Widget build(BuildContext context) {
@@ -559,7 +570,7 @@ class _PeerTile extends StatelessWidget {
     ].join(', ');
 
     return ListTile(
-      leading: pinned
+      leading: pinned && !dismissible
           ? Tooltip(
               message: l10n.t('peerPinnedHint'),
               child: Stack(
@@ -653,13 +664,13 @@ class _PeerTile extends StatelessWidget {
               ),
             ],
           ),
-          if (onRemove != null && !pinned)
+          if (onRemove != null && (!pinned || dismissible))
             IconButton(
               tooltip: removeTooltip,
               onPressed: onRemove,
               icon: const Icon(Icons.close_rounded, size: 18),
             ),
-          if (pinned)
+          if (pinned && !dismissible)
             Tooltip(
               message: l10n.t('peerPinnedHint'),
               child: Padding(

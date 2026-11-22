@@ -260,13 +260,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     l10n: l10n,
                     fromExit: state.isExitDnsPreset(server),
                     trailing: state.isExitDnsServer(server)
-                        ? Tooltip(
-                            message: l10n.t('dnsExitLocked'),
-                            child: const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 12),
-                              child: Icon(Icons.lock_rounded, size: 18),
-                            ),
-                          )
+                        ? (state.settings.exitEnabled
+                              ? Tooltip(
+                                  message: l10n.t('dnsExitLocked'),
+                                  child: const Padding(
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                    ),
+                                    child: Icon(Icons.lock_rounded, size: 18),
+                                  ),
+                                )
+                              // The exit node is off, so its resolver can be
+                              // taken out of the list. Switching the exit on
+                              // adds it back while "DNS exit node" is on.
+                              : IconButton(
+                                  tooltip: l10n.t('remove'),
+                                  onPressed: state.dismissExitDns,
+                                  icon: const Icon(
+                                    Icons.close_rounded,
+                                    size: 18,
+                                  ),
+                                ))
                         : IconButton(
                             tooltip: l10n.t('remove'),
                             onPressed: () {

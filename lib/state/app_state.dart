@@ -1255,8 +1255,54 @@ class AppState extends ChangeNotifier {
       return;
     }
     if (settings.exitEnabled == enabled) return;
-    await saveSettings(settings.copyWith(exitEnabled: enabled));
+    if (enabled) {
+      // Turning the exit on brings back what the user removed while it was
+      // off: the pinned peer and the resolver the "DNS exit node" switch owns.
+      var servers = [...settings.dnsServers];
+      final resolver = exitDnsServer;
+      if (settings.exitDnsEnabled &&
+          resolver.isNotEmpty &&
+          !servers.contains(resolver)) {
+        servers = _exitDnsFirst([...servers, resolver], resolver);
+      }
+      await saveSettings(
+        settings.copyWith(
+          exitEnabled: true,
+          exitPeerHidden: false,
+          exitDnsHidden: false,
+          dnsServers: servers,
+        ),
+      );
+      await _syncExitPeers(settings.exitProfiles);
+    } else {
+      await saveSettings(settings.copyWith(exitEnabled: false));
+    }
     if (snapshot.isConnected) await reconnect();
+  }
+
+  /// Removes the pinned peer of the exit node from the active list while the
+  /// exit is off. The peer comes back the moment the exit is switched on.
+  Future<void> dismissExitPeer() async {
+    if (settings.exitPeerHidden) return;
+    await saveSettings(settings.copyWith(exitPeerHidden: true));
+    await _syncExitPeers(settings.exitProfiles);
+  }
+
+  /// Removes the resolver of the exit node from the tunnel list while the exit
+  /// is off. The "DNS exit node" switch stays on: turning the exit on adds the
+  /// resolver back.
+  Future<void> dismissExitDns() async {
+    final server = exitDnsServer;
+    if (server.isEmpty) return;
+    await saveSettings(
+      settings.copyWith(
+        exitDnsHidden: true,
+        dnsServers: [
+          for (final item in settings.dnsServers)
+            if (item != server) item,
+        ],
+      ),
+    );
   }
 
   Future<void> setExitFallbackDirect(bool value) =>
@@ -1449,10 +1495,14 @@ class AppState extends ChangeNotifier {
     final after = _exitDnsAddresses(profiles);
     final previous = exitDnsServer;
     // The switch owns its resolver even before it appears in the list: a
-    // profile that learns its resolver from the status API is added here.
+    // profile that learns its resolver from the status API is added here. A
+    // resolver the user removed while the exit was off stays out until the
+    // exit is switched on.
+    final dismissed = settings.exitDnsHidden && !settings.exitEnabled;
     final hadExitDns =
-        settings.exitDnsEnabled ||
-        (previous.isNotEmpty && settings.dnsServers.contains(previous));
+        !dismissed &&
+        (settings.exitDnsEnabled ||
+            (previous.isNotEmpty && settings.dnsServers.contains(previous)));
     final servers = [
       for (final server in settings.dnsServers)
         if (!before.contains(server) || after.contains(server)) server,
@@ -1509,7 +1559,10 @@ class AppState extends ChangeNotifier {
     final active = _activeExitProfile(profiles);
     final wanted = <String>{};
     final uri = active?.peer.trim() ?? '';
-    if (uri.isNotEmpty) wanted.add(uri);
+    // The peer the user removed while the exit was off stays out of the list
+    // until the exit is switched on again.
+    final hidden = !settings.exitEnabled && settings.exitPeerHidden;
+    if (uri.isNotEmpty && !hidden) wanted.add(uri);
     // Every exit host stays out of the public pool: the node reaches those
     // servers through the pinned link, not as ordinary mesh peers.
     final exitHosts = {
@@ -1965,6 +2018,7 @@ class AppState extends ChangeNotifier {
         batch: settings.probeBatch,
         timeoutMs: settings.probeTimeoutMs,
         targetAlive: target,
+        homeCountry: countrySlug,
         onProgress: (progress) {
           probeProgress = progress;
           notifyListeners();

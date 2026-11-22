@@ -296,4 +296,31 @@ void main() {
 
     expect(ordered.dnsServers.first, '308:84:68:55::');
   });
+
+  // The cross next to the resolver of an exit node that is switched off is not
+  // a permanent delete: the "DNS exit node" switch adds it back with the exit.
+  test('a dismissed exit resolver comes back with the exit switch', () async {
+    const profile = ExitProfile(
+      id: 'e1',
+      name: 'Exit',
+      address: '200::1',
+      dnsAddress: '10.111.222.2',
+      invite: 'invite',
+    );
+    final state = AppState();
+    state.settings = const AppSettings(
+      exitProfiles: [profile],
+      exitActiveId: 'e1',
+      exitDnsEnabled: true,
+      dnsServers: ['10.111.222.2', '308:84:68:55::'],
+    );
+
+    await state.dismissExitDns();
+    expect(state.settings.exitDnsHidden, isTrue);
+    expect(state.settings.dnsServers, isNot(contains('10.111.222.2')));
+
+    await state.setExitEnabled(true);
+    expect(state.settings.exitDnsHidden, isFalse);
+    expect(state.settings.dnsServers.first, '10.111.222.2');
+  });
 }

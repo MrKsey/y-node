@@ -4,6 +4,13 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.17] — 2026-11-22
+
+### Fixed
+
+- The pinned peer of the exit node now shows a cross instead of the lock while the exit switch is off, and the cross removes the peer from the active list. Switching the exit on brings the peer back with its lock. The resolver the **DNS exit node** switch owns behaves the same way: it can be removed while the exit is off and comes back, first in the tunnel list, when the exit is switched on. The **DNS exit node** switch itself stays on, so the intent is not lost.
+- **Find peers** no longer skips the peers of the detected country. The probe sorted the whole candidate list by TCP round trip and stopped as soon as it had enough live peers, so the nearest peers were often never dialled and the card showed only distant ones: with the location detected in Russia the list held German, Dutch and French nodes. The peers of the detected country are now probed first and the early stop waits until all of them have been tested; the card keeps the country order instead of re-sorting the result by latency alone.
+
 ## [1.5.16] — 2026-11-21
 
 ### Fixed

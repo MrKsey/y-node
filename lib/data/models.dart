@@ -1096,6 +1096,8 @@ class AppSettings {
     this.exitLocalDns = true,
     this.exitDnsEnabled = false,
     this.exitUdp = true,
+    this.exitPeerHidden = false,
+    this.exitDnsHidden = false,
     this.exitDnsServers = defaultExitDnsServers,
     this.exitLocalDnsServers = const [],
     this.exitNodeNameEnabled = false,
@@ -1131,6 +1133,14 @@ class AppSettings {
   /// Carry DNS and QUIC over the exit as well. Turning it off drops public UDP
   /// instead of letting it leave the phone around the exit.
   final bool exitUdp;
+
+  /// The user removed the pinned peer of the exit node from the active list
+  /// while the exit was off. Turning the exit on brings the peer back.
+  final bool exitPeerHidden;
+
+  /// The same for the resolver the exit node publishes: removing it while the
+  /// exit is off keeps it out of the tunnel list until the exit is on again.
+  final bool exitDnsHidden;
 
   /// Public resolvers the exit queries over TCP. The defaults are the same
   /// servers the server-side split-DNS uses when nothing is configured.
@@ -1228,6 +1238,8 @@ class AppSettings {
     exitLocalDns: (json['exitLocalDns'] as bool?) ?? true,
     exitDnsEnabled: (json['exitDnsEnabled'] as bool?) ?? false,
     exitUdp: (json['exitUdp'] as bool?) ?? true,
+    exitPeerHidden: (json['exitPeerHidden'] as bool?) ?? false,
+    exitDnsHidden: (json['exitDnsHidden'] as bool?) ?? false,
     exitDnsServers: _serverList(json, 'exitDnsServers').isEmpty
         ? defaultExitDnsServers
         : _serverList(json, 'exitDnsServers'),
@@ -1259,6 +1271,8 @@ class AppSettings {
     'exitLocalDns': exitLocalDns,
     'exitDnsEnabled': exitDnsEnabled,
     'exitUdp': exitUdp,
+    'exitPeerHidden': exitPeerHidden,
+    'exitDnsHidden': exitDnsHidden,
     'exitDnsServers': exitDnsServers,
     'exitLocalDnsServers': exitLocalDnsServers,
     'exitNodeNameEnabled': exitNodeNameEnabled,
@@ -1288,6 +1302,8 @@ class AppSettings {
     bool? exitLocalDns,
     bool? exitDnsEnabled,
     bool? exitUdp,
+    bool? exitPeerHidden,
+    bool? exitDnsHidden,
     List<String>? exitDnsServers,
     List<String>? exitLocalDnsServers,
     bool? exitNodeNameEnabled,
@@ -1315,6 +1331,8 @@ class AppSettings {
     exitLocalDns: exitLocalDns ?? this.exitLocalDns,
     exitDnsEnabled: exitDnsEnabled ?? this.exitDnsEnabled,
     exitUdp: exitUdp ?? this.exitUdp,
+    exitPeerHidden: exitPeerHidden ?? this.exitPeerHidden,
+    exitDnsHidden: exitDnsHidden ?? this.exitDnsHidden,
     exitDnsServers: exitDnsServers ?? this.exitDnsServers,
     exitLocalDnsServers: exitLocalDnsServers ?? this.exitLocalDnsServers,
     exitNodeNameEnabled: exitNodeNameEnabled ?? this.exitNodeNameEnabled,
