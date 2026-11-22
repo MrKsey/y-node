@@ -76,6 +76,14 @@ class AppState extends ChangeNotifier {
   /// Set when the user ticked "Don't show again" in the browser hint dialog.
   static const String _kBrowserHintOff = 'browser_hint_off';
 
+  /// "1" once "Save battery" was switched on automatically for a low battery.
+  /// Cleared when the phone starts charging, so the next discharge may repeat
+  /// it, while a manual switch-off is not overridden over and over.
+  static const String _kEnergyAuto = 'energy_auto';
+
+  /// Below this level the app switches "Save battery" on by itself.
+  static const int _lowBatteryPercent = 15;
+
   /// How many candidates get the cheap TCP pass before the protocol probes.
   static const int _probePoolSize = 160;
 
@@ -216,6 +224,10 @@ class AppState extends ChangeNotifier {
   bool batteryExempt = false;
   bool notificationsAllowed = true;
 
+  /// How many wake-up alarms fired today, counted by the service. Shown in
+  /// Settings so the battery work of the tunnel can be checked without adb.
+  int wakeCount = 0;
+
   /// Automatic release check against the project's GitHub releases. Off by
   /// default: the check contacts GitHub, so the user opts in from Settings.
   bool updateCheckEnabled = false;
@@ -295,6 +307,16 @@ class AppState extends ChangeNotifier {
   StreamSubscription<VpnSnapshot>? _statusSub;
   Timer? _poll;
   bool _polling = false;
+
+  /// True while the window is not on screen. The service keeps pushing
+  /// snapshots, but rebuilding a hidden tree is pure work: the next visible
+  /// frame reads a fresh one through [refreshFromStore].
+  bool _paused = false;
+
+  /// Set by [dispose]: a poll that was already in flight must not schedule the
+  /// next one on a dead notifier.
+  bool _disposed = false;
+
   String _lastSignature = '';
 
   /// Bumped whenever [snapshot] or [peers] changes; the URI map is rebuilt only
@@ -491,6 +513,7 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _poll?.cancel();
     _statusSub?.cancel();
     traffic.dispose();
@@ -500,10 +523,24 @@ class AppState extends ChangeNotifier {
   /// The service pushes snapshots through an event channel, but a plain poll is
   /// kept as the source of truth: it is one small map per second and it always
   /// converges, including after the activity has been paused behind a system
-  /// dialog.
+  /// dialog. The interval follows the state: with the tunnel down nothing but a
+  /// tap can change the screen, so the poll runs at a third of the rate.
   void _startPolling() {
     _poll?.cancel();
-    _poll = Timer.periodic(const Duration(seconds: 1), (_) => _pollState());
+    _poll = null;
+    _schedulePoll();
+  }
+
+  void _schedulePoll() {
+    if (_paused || _disposed) return;
+    final idle = snapshot.isDisconnected && !connecting;
+    final interval = idle
+        ? const Duration(seconds: 3)
+        : const Duration(seconds: 1);
+    _poll = Timer(interval, () async {
+      await _pollState();
+      _schedulePoll();
+    });
   }
 
   /// Stops the one-second poll while the app is not on screen. The tunnel is
@@ -511,12 +548,14 @@ class AppState extends ChangeNotifier {
   /// when it comes back. A timer that kept waking the app in the background is
   /// what the system reports as idle CPU use.
   void pausePolling() {
+    _paused = true;
     _poll?.cancel();
     _poll = null;
   }
 
   /// Restarts the poll after the app returns to the foreground.
   void resumePolling() {
+    _paused = false;
     if (_poll != null) return;
     _startPolling();
     unawaited(_pollState());
@@ -604,17 +643,30 @@ class AppState extends ChangeNotifier {
       _dnsGeneration++;
     } else {
       _dnsReadySince ??= DateTime.now();
-      if (!_dnsVerified && !_dnsScheduled) {
-        _dnsScheduled = true;
-        final generation = ++_dnsGeneration;
-        unawaited(_afterTunnelUp(generation));
-      }
+      _maybeScheduleDnsCheck();
       if (!_presetsRefreshed) {
         _presetsRefreshed = true;
         unawaited(refreshDnsPresets());
       }
     }
     notifyListeners();
+  }
+
+  /// Starts the DNS health check once the tunnel can carry queries.
+  ///
+  /// A hidden window does not run it: the result would only be stored for a
+  /// screen nobody sees, while the check itself resolves a name through the
+  /// tunnel and costs traffic. The next visible frame calls this again.
+  void _maybeScheduleDnsCheck() {
+    if (_paused) return;
+    if (!dnsReady || _dnsVerified || _dnsScheduled) return;
+    if (settings.dnsMode == DnsMode.system) {
+      _dnsVerified = true;
+      return;
+    }
+    _dnsScheduled = true;
+    final generation = ++_dnsGeneration;
+    unawaited(_afterTunnelUp(generation));
   }
 
   /// Keeps the last error of every peer in memory even after the link recovers
@@ -652,6 +704,7 @@ class AppState extends ChangeNotifier {
         return;
       }
       while (true) {
+        if (_paused) return;
         if (generation != _dnsGeneration || !dnsReady) return;
         final since = _dnsReadySince;
         if (since == null) return;
@@ -660,6 +713,7 @@ class AppState extends ChangeNotifier {
         await Future<void>.delayed(const Duration(milliseconds: 500));
       }
       for (var attempt = 0; attempt < 4; attempt++) {
+        if (_paused) return;
         if (generation != _dnsGeneration || !dnsReady) return;
         if (await verifyDns()) {
           _dnsVerified = true;
@@ -731,7 +785,13 @@ class AppState extends ChangeNotifier {
   void _listenToStatus() {
     try {
       _statusSub = Native.statusStream().listen(
-        (next) => _applySnapshot(next),
+        (next) {
+          // A snapshot that arrives with the window hidden is dropped: the
+          // service already slows its own feed down, and marking a tree that
+          // nobody sees dirty only wakes the engine for nothing.
+          if (_paused) return;
+          _applySnapshot(next);
+        },
         onError: (Object _) {
           // The poll below is the fallback.
         },
@@ -748,11 +808,13 @@ class AppState extends ChangeNotifier {
       Native.yggVersion(),
       Native.isBatteryExempt(),
       Native.hasNotificationPermission(),
+      Native.readMany(const ['wake_count', 'wake_day']),
     ]);
     appVersion = results[0] as String;
     yggVersion = results[1] as String;
     batteryExempt = results[2] as bool;
     notificationsAllowed = results[3] as bool;
+    wakeCount = _wakeCountToday(results[4] as Map<String, String>);
     notifyListeners();
   }
 
@@ -761,12 +823,23 @@ class AppState extends ChangeNotifier {
   /// while comes back with a frozen supervisor thread, so without the request
   /// the latency column stays empty until the next manual refresh.
   Future<void> refreshFromStore() async {
-    final stored = await Native.readAll();
+    // Only the keys this method uses: the store also holds the catalogue, the
+    // caches and the logs, and reading all of them on every return to the
+    // foreground was needless work on the platform channel.
+    final stored = await Native.readMany(const [
+      _kPeers,
+      _kPool,
+      _kPeerErrors,
+      _kPeersUpdated,
+      'wake_count',
+      'wake_day',
+    ]);
     peers = PeerEntry.listFromJson(stored[_kPeers]);
     pool = PeerEntry.listFromJson(stored[_kPool]);
     peerErrors = PeerErrorRecord.mapFromJson(stored[_kPeerErrors]);
     peersUpdatedAt =
         DateTime.tryParse(stored[_kPeersUpdated] ?? '') ?? peersUpdatedAt;
+    wakeCount = _wakeCountToday(stored);
     batteryExempt = await Native.isBatteryExempt();
     if (snapshot.isConnected) {
       await Native.refreshPeers();
@@ -777,6 +850,10 @@ class AppState extends ChangeNotifier {
         await _pollState();
       }
     }
+    // The window is on screen again: a DNS check that was skipped while it was
+    // hidden can run now.
+    _maybeScheduleDnsCheck();
+    await applyLowBatteryMode();
     notifyListeners();
   }
 
@@ -882,7 +959,42 @@ class AppState extends ChangeNotifier {
   Future<void> refreshBattery() async {
     batteryExempt = await Native.isBatteryExempt();
     notificationsAllowed = await Native.hasNotificationPermission();
+    await applyLowBatteryMode();
     notifyListeners();
+  }
+
+  /// The counter the service keeps is per calendar day; a value from an older
+  /// day means no wake-up happened today.
+  static int _wakeCountToday(Map<String, String> stored) {
+    final now = DateTime.now();
+    final today =
+        '${now.year.toString().padLeft(4, '0')}-'
+        '${now.month.toString().padLeft(2, '0')}-'
+        '${now.day.toString().padLeft(2, '0')}';
+    if (stored['wake_day'] != today) return 0;
+    return int.tryParse(stored['wake_count'] ?? '') ?? 0;
+  }
+
+  /// Turns "Save battery" on by itself when the phone is about to run flat.
+  ///
+  /// The switch is a user setting, so the automatic change happens once per
+  /// discharge: the stored flag is cleared as soon as the phone is charging
+  /// again, which makes the next low battery start a new round instead of
+  /// fighting a switch the user turned off in the meantime.
+  Future<void> applyLowBatteryMode() async {
+    final state = await Native.batteryState();
+    if (state.level < 0) return;
+    if (state.charging) {
+      if (await Native.read(_kEnergyAuto) == '1') {
+        await Native.write(_kEnergyAuto, '');
+      }
+      return;
+    }
+    if (state.level > _lowBatteryPercent) return;
+    if (settings.energySaving) return;
+    if (await Native.read(_kEnergyAuto) == '1') return;
+    await Native.write(_kEnergyAuto, '1');
+    await saveSettings(settings.copyWith(energySaving: true));
   }
 
   // ------------------------------------------------------------------

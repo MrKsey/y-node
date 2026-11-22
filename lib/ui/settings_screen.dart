@@ -494,6 +494,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           SectionCard(
             title: l10n.t('sectionLogs'),
             children: [
+              InfoRow(label: l10n.t('wakeUps24h'), value: '${state.wakeCount}'),
+              const Divider(height: 1),
               SwitchListTile(
                 value: settings.logging,
                 onChanged: (value) async {
@@ -637,10 +639,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           SectionCard(
             title: l10n.t('sectionAbout'),
             children: [
-              InfoRow(
-                label: l10n.t('version'),
-                value: state.appVersion.isEmpty ? '—' : state.appVersion,
-              ),
               InfoRow(
                 label: l10n.t('yggVersion'),
                 value: state.yggVersion.isEmpty ? '—' : state.yggVersion,

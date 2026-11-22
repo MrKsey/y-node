@@ -24,6 +24,7 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.util.Locale
 import java.util.concurrent.Executors
+import org.json.JSONArray
 import org.json.JSONObject
 import yggnode.Node
 import yggnode.Yggnode
@@ -68,20 +69,47 @@ class YggVpnService : VpnService() {
         /** While the screen is off the CPU is allowed to suspend, and the Go
          *  timers of the node — the peer supervisor and the exit health loop —
          *  then run only when something else wakes the device. The alarm buys
-         *  them a short slot once a minute; traffic wakes the CPU by itself, so
-         *  this is a keep-alive for the idle case, not part of the data path. */
-        private const val SCREEN_OFF_WAKEUP_INTERVAL_MS = 60_000L
+         *  them a short slot every five minutes; traffic wakes the CPU by
+         *  itself, so this is a keep-alive for the idle case, not part of the
+         *  data path. A dead peer is allowed to sit for a while at night: the
+         *  data path only needs one live link, and the supervisor swaps the
+         *  rest on the next slot. */
+        private const val SCREEN_OFF_WAKEUP_INTERVAL_MS = 300_000L
 
         /** With "Save battery" the timers are allowed to lag much more: the
          *  tunnel itself does not depend on them, only their freshness does. */
-        private const val SCREEN_OFF_WAKEUP_INTERVAL_SAVING_MS = 300_000L
+        private const val SCREEN_OFF_WAKEUP_INTERVAL_SAVING_MS = 900_000L
 
         /** Long enough for one round of Go timers to run, short enough not to
          *  keep the CPU up for a noticeable share of the interval. */
         private const val SCREEN_OFF_WAKE_LOCK_MS = 4_000L
         private const val DATA_ACTIVITY_REFRESH_MS = 1_000L
-        private const val DATA_ACTIVITY_WAKE_LOCK_MS = 10_000L
+
+        /** How long the CPU is kept up after a burst of traffic with the screen
+         *  off. The lock is renewed by every further burst, so a download keeps
+         *  the CPU up for as long as it runs and the speed is never limited;
+         *  the value only decides how long the tail after the last packet is
+         *  covered, and a long tail is pure battery. */
+        private const val DATA_ACTIVITY_WAKE_LOCK_MS = 3_000L
         private const val DATA_ACTIVITY_MIN_BYTES = 16 * 1024
+
+        /** How often the figures in the panel are refreshed while the window is
+         *  hidden. The screen is on, so the notification is visible, but a
+         *  byte counter does not need a per-second redraw: every post rebuilds
+         *  the remote views of the panel. */
+        private const val HIDDEN_STATS_INTERVAL_MS = 30_000L
+
+        /** How often the peer links are read while the window is hidden but the
+         *  screen is on. The data path never waits for the supervisor: it only
+         *  swaps a peer that died, and a minute of delay costs nothing while
+         *  nobody watches the list. */
+        private const val HIDDEN_PEER_INTERVAL_MS = 60_000L
+
+        /** A background pool refill is a probe run: five candidates per round,
+         *  eight seconds each, and at most a minute of it in total. */
+        private const val POOL_PROBE_BATCH = 5
+        private const val POOL_PROBE_TIMEOUT_MS = 8_000L
+        private const val POOL_PROBE_BUDGET_MS = 60_000L
 
         private const val MAX_REVOKE_ATTEMPTS = 5
         private const val REVOKE_SETTLE_MS = 2_000L
@@ -112,6 +140,20 @@ class YggVpnService : VpnService() {
         /** Re-reads the live peer state right away, for the Refresh button. */
         fun refreshPeers() {
             instance?.supervisor?.requestCheck()
+        }
+
+        /**
+         * The window came back on screen. The service does not keep a reference
+         * to the activity: this one call is enough to give the first frame real
+         * figures instead of the ones from the moment it went away.
+         */
+        fun onUiShown() {
+            instance?.applyUiShown()
+        }
+
+        /** The window is gone again: the timers may fall back to the slow pace. */
+        fun onUiHidden() {
+            instance?.applyUiHidden()
         }
 
         /**
@@ -314,6 +356,13 @@ class YggVpnService : VpnService() {
         Thread(r, "ygg-service").apply { isDaemon = true }
     }
 
+    /** A background probe can run for a minute. It must never queue behind, or
+     *  in front of, a connect or a teardown on [worker]: a disconnect has to
+     *  happen at once even while the pool is being refilled. */
+    private val poolWorker = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "ygg-pool").apply { isDaemon = true }
+    }
+
     /** Set as soon as a disconnect is requested, so a queued connect stops. */
     @Volatile
     private var stopRequested = false
@@ -356,6 +405,9 @@ class YggVpnService : VpnService() {
     private var statsThread: Thread? = null
     private var exitWatchThread: Thread? = null
 
+    /** Guards the sleep of the stats loop so a visible window can cut it short. */
+    private val statsSleeper = Object()
+
     /** Guards the sleep of the exit health loop so a wake can cut it short. */
     private val exitSleeper = Object()
 
@@ -387,6 +439,10 @@ class YggVpnService : VpnService() {
     @Volatile
     private var lastEstablishedAt = 0L
 
+    /** True while a background pool refill is running on the worker. */
+    @Volatile
+    private var poolRefillRunning = false
+
     private var revokeAttempts = 0
     private var networkChangeScheduled = false
     private var lastNetworkChangeAt = 0L
@@ -405,6 +461,9 @@ class YggVpnService : VpnService() {
     private val releaseWakeLockRunnable = Runnable { releaseWakeLockIfIdle() }
     private var lastActivityAt = 0L
     private var bytesSinceRenew = 0
+
+    /** When the last stats snapshot was built, in elapsed-realtime millis. */
+    private var lastStatsPushAt = 0L
 
     // ------------------------------------------------------------------
     // Lifecycle
@@ -539,6 +598,7 @@ class YggVpnService : VpnService() {
             }
         }
         worker.shutdown()
+        poolWorker.shutdownNow()
         super.onDestroy()
     }
 
@@ -849,7 +909,143 @@ class YggVpnService : VpnService() {
                     )
                 }
             },
-        ).also { it.start(peers, prefs.pool()) }
+            onPoolEmpty = {
+                poolWorker.execute { refillPoolFromCache() }
+            },
+        ).also {
+            it.start(peers, prefs.pool())
+            // A connect started from the panel can run with the screen already
+            // off: the supervisor has to begin at the background pace.
+            supervisor = it
+            updateSupervisorPace()
+        }
+    }
+
+    /**
+     * Refills an empty replacement pool from the catalogue the UI stored last
+     * time it was open. Called by the supervisor when every active peer is
+     * down and there is nothing left to swap in: without it a tunnel that lost
+     * all its peers overnight stayed dead until the user opened the app.
+     *
+     * The probe is the same one the Peers screen runs, in rounds of five, and
+     * the whole run is capped at a minute. It is skipped while the window is
+     * visible: the user may be running a probe of their own there.
+     */
+    private fun refillPoolFromCache() {
+        if (poolRefillRunning) return
+        poolRefillRunning = true
+        try {
+            if (!isActive || stopping || VpnState.uiVisible) return
+            val settings = prefs.settings()
+            if (!settings.autoReplace) return
+            val supervisor = supervisor ?: return
+            val cached = readCachedPeers()
+            if (cached.isEmpty()) {
+                ConnectionLog.append("WARN", "the peer pool is empty and there is no cached catalogue")
+                return
+            }
+            val activeUris = supervisor.currentPeers().map { it.uri }.toSet()
+            val usedHosts = activeUris.map { hostOf(it) }.toSet()
+            val queue = cached.filter {
+                it.uri !in activeUris && hostOf(it.uri) !in usedHosts
+            }
+            if (queue.isEmpty()) {
+                ConnectionLog.append("WARN", "the cached catalogue has no unused peer")
+                return
+            }
+            val target = settings.peerCount.coerceAtLeast(2)
+            val alive = LinkedHashMap<String, PeerEntry>()
+            val deadline = SystemClock.elapsedRealtime() + POOL_PROBE_BUDGET_MS
+            var index = 0
+            while (index < queue.size && alive.size < target &&
+                isActive && !stopping && !VpnState.uiVisible &&
+                SystemClock.elapsedRealtime() < deadline
+            ) {
+                val end = minOf(index + POOL_PROBE_BATCH, queue.size)
+                val slice = queue.subList(index, end)
+                index = end
+                val json = try {
+                    Yggnode.probePeers(
+                        JSONArray(slice.map { it.uri }).toString(),
+                        POOL_PROBE_TIMEOUT_MS,
+                        goLogger,
+                    )
+                } catch (t: Throwable) {
+                    ConnectionLog.append("WARN", "pool probe failed: ${t.message}")
+                    "[]"
+                }
+                val results = try {
+                    JSONArray(json)
+                } catch (_: Exception) {
+                    JSONArray()
+                }
+                for (i in 0 until results.length()) {
+                    val o = results.optJSONObject(i) ?: continue
+                    if (!o.optBoolean("up", false)) continue
+                    val latency = o.optDouble("latencyMs", 0.0)
+                    if (latency <= 0.0) continue
+                    val uri = o.optString("uri")
+                    val peer = slice.firstOrNull { it.uri == uri } ?: continue
+                    alive.putIfAbsent(
+                        uri,
+                        PeerEntry(
+                            uri = uri,
+                            country = peer.country,
+                            city = peer.city,
+                            latencyMs = latency,
+                        ),
+                    )
+                }
+            }
+            if (alive.isEmpty()) {
+                ConnectionLog.append("WARN", "the pool refill found no live peer")
+                return
+            }
+            supervisor.applyPool(alive.values.toList())
+            supervisor.requestCheck()
+            ConnectionLog.append(
+                "INFO",
+                "pool refilled with ${alive.size} live peer(s) from the cache",
+            )
+        } finally {
+            poolRefillRunning = false
+        }
+    }
+
+    private data class CachedPeer(
+        val uri: String,
+        val country: String,
+        val city: String,
+    )
+
+    /** The catalogue the UI stored on its last run, or an empty list. */
+    private fun readCachedPeers(): List<CachedPeer> {
+        val raw = prefs.getString(Prefs.KEY_PEER_CACHE) ?: return emptyList()
+        return try {
+            val arr = JSONArray(raw)
+            buildList {
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    val uri = o.optString("uri")
+                    if (uri.isBlank()) continue
+                    add(
+                        CachedPeer(
+                            uri = uri,
+                            country = o.optString("country"),
+                            city = o.optString("city"),
+                        ),
+                    )
+                }
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun hostOf(uri: String): String = try {
+        java.net.URI(uri).host?.lowercase() ?: uri
+    } catch (_: Exception) {
+        uri
     }
 
     private fun handleDisconnect(userInitiated: Boolean) {
@@ -1112,17 +1308,67 @@ class YggVpnService : VpnService() {
             mainHandler.removeCallbacks(releaseWakeLockRunnable)
             releaseWakeLock()
         } else if (isActive) {
-            scheduleWakeAlarm()
+            // No alarm at all without a tunnel or with auto replace off: the
+            // idle app must not wake the phone for work it does not do.
+            if (prefs.settings().autoReplace) scheduleWakeAlarm() else cancelWakeAlarm()
             releaseWakeLock()
         }
-        // Push the current figures right away so the UI is fresh on wake. The
-        // peer links are re-read too: after a long sleep the supervisor may not
-        // have ticked yet and the latency column would stay empty.
-        if (interactive) {
-            pushStats()
-            supervisor?.requestCheck()
-            requestExitCheck()
+        // The supervisor checks much less often while the screen is off, and
+        // less often again while the window is hidden: a peer that dies is
+        // replaced on the next slot, which is plenty when nobody watches the
+        // list. Returning to the foreground restores the normal pace.
+        updateSupervisorPace()
+        // Push the current figures right away so the UI is fresh on wake, but
+        // only when there is a UI to refresh: with the screen off the window is
+        // hidden and the next visible frame asks for its own round.
+        if (interactive && VpnState.uiVisible) {
+            applyUiShown()
+        } else if (interactive) {
+            // The window is not on screen, but the panel is: give the stats
+            // loop a tick so the notification shows the numbers from this
+            // moment instead of the ones from before the sleep.
+            wakeStats()
         }
+    }
+
+    /** One fresh round for a window that just came back on screen. */
+    private fun applyUiShown() {
+        if (!isActive) return
+        // The stats loop may be parked in a long screen-off sleep; a visible
+        // window needs its first frame at once, not in a minute.
+        updateSupervisorPace()
+        wakeStats()
+        pushStats()
+        supervisor?.requestCheck()
+        requestExitCheck()
+    }
+
+    /** The window went away: the supervisor drops to the hidden pace at once. */
+    private fun applyUiHidden() {
+        updateSupervisorPace()
+        wakeStats()
+    }
+
+    /** The interval the supervisor has to use for the current visibility. */
+    private fun updateSupervisorPace() {
+        val supervisor = supervisor ?: return
+        val autoReplace = prefs.settings().autoReplace
+        supervisor.setUiVisible(VpnState.uiVisible)
+        supervisor.setPace(
+            when {
+                // Screen off with auto replace on: one look per wake-up slot,
+                // the same one the alarm gives the Go timers.
+                !screenInteractive && autoReplace -> wakeupIntervalMs()
+                // Screen off and nothing to replace: park the loop completely.
+                // Only a real request (the alarm, a new window, a manual
+                // refresh) wakes it, so an idle tunnel costs no timer at all.
+                !screenInteractive -> -1L
+                VpnState.uiVisible -> 0L
+                // Hidden window with the screen on: still watched, but once a
+                // minute is enough for a list nobody is looking at.
+                else -> HIDDEN_PEER_INTERVAL_MS
+            },
+        )
     }
 
     private fun noteDataActivity(bytes: Int) {
@@ -1168,10 +1414,10 @@ class YggVpnService : VpnService() {
         // The alarm exists for one job only: let the peer supervisor notice a
         // peer that died silently and swap it while the phone sleeps. The data
         // path never waits for it — a packet wakes the CPU by itself — and the
-        // UI is refreshed from `onScreenStateChanged` the moment the screen
-        // comes back. With auto replace off there is nothing to do in the
-        // background, so no alarm is scheduled at all.
-        if (!prefs.settings().autoReplace) {
+        // UI is refreshed from `onUiShown` the moment the window comes back.
+        // Without a tunnel or with auto replace off there is nothing to do in
+        // the background, so no alarm is scheduled at all.
+        if (!isActive || !prefs.settings().autoReplace) {
             cancelWakeAlarm()
             return
         }
@@ -1216,9 +1462,16 @@ class YggVpnService : VpnService() {
 
     private fun handleWakeup() {
         if (!screenInteractive && isActive && prefs.settings().autoReplace) {
+            prefs.noteWakeUp()
             acquireWakeLock()
             mainHandler.removeCallbacks(releaseWakeLockRunnable)
             mainHandler.postDelayed(releaseWakeLockRunnable, SCREEN_OFF_WAKE_LOCK_MS)
+            // The wake lock only keeps the CPU up; the Go loops sleep on their
+            // own monitors and would otherwise wait out the rest of their
+            // five-minute interval. The slot exists to give them one look at
+            // the live links, so they are asked to do it now.
+            supervisor?.requestCheck()
+            requestExitCheck()
             scheduleWakeAlarm()
         } else {
             cancelWakeAlarm()
@@ -1230,17 +1483,46 @@ class YggVpnService : VpnService() {
         statsThread = Thread({
             while (isActive && !stopping) {
                 pushStats()
-                val sleep = if (screenInteractive && !settings.energySaving) 1000L else 5000L
-                try {
-                    Thread.sleep(sleep)
-                } catch (_: InterruptedException) {
-                    return@Thread
+                // One second only for a visible window without "Save battery":
+                // that is the only case where a human watches the counters.
+                // With the window hidden the notification is the only consumer,
+                // and with the screen off nothing is drawn at all: the loop then
+                // waits for `wakeStats` instead of polling, so the CPU is not
+                // woken for a snapshot that `pushStats` would throw away.
+                val visible = screenInteractive && VpnState.uiVisible
+                val sleep = when {
+                    // Nothing draws the numbers while the screen is off, so the
+                    // loop parks until `wakeStats` and costs no wake-up at all.
+                    !screenInteractive -> 0L
+                    visible && !settings.energySaving -> 1_000L
+                    // Hidden window: the panel is the only consumer and it is
+                    // redrawn at `HIDDEN_STATS_INTERVAL_MS` anyway.
+                    else -> 15_000L
+                }
+                synchronized(statsSleeper) {
+                    if (!isActive || stopping) return@Thread
+                    try {
+                        // A zero timeout means "until notified": the screen is
+                        // off and there is nothing to report.
+                        if (sleep <= 0L) {
+                            statsSleeper.wait()
+                        } else {
+                            statsSleeper.wait(sleep)
+                        }
+                    } catch (_: InterruptedException) {
+                        return@Thread
+                    }
                 }
             }
         }, "ygg-stats").apply {
             isDaemon = true
             start()
         }
+    }
+
+    /** Cuts the sleep of the stats loop short, for a window that just appeared. */
+    private fun wakeStats() {
+        synchronized(statsSleeper) { statsSleeper.notifyAll() }
     }
 
     private fun stopStats() {
@@ -1290,7 +1572,20 @@ class YggVpnService : VpnService() {
                     ConnectionLog.append("WARN", "exit health check failed: ${t.message}")
                 }
                 pushStats()
-                val sleep = current.healthCheckSec.coerceIn(5, 120) * 1000L
+                // The health check is an HTTP round trip through the tunnel.
+                // With the window hidden it is only kept warm: the data path
+                // never waits for it, so one check a minute is plenty. With the
+                // screen off even that is more than the tunnel needs — the exit
+                // keeps forwarding without the poll — so it runs on the same
+                // five-minute slot as the supervisor.
+                val base = current.healthCheckSec.coerceIn(5, 120) * 1000L
+                val sleep = when {
+                    // The same slot as the supervisor: the exit keeps forwarding
+                    // without the poll, so this only refreshes its health.
+                    !screenInteractive -> maxOf(base, wakeupIntervalMs())
+                    VpnState.uiVisible -> base
+                    else -> maxOf(base, 60_000L)
+                }
                 synchronized(exitSleeper) {
                     if (isActive && !stopping && exitWatchThread === self &&
                         !exitCheckRequested
@@ -1367,6 +1662,18 @@ class YggVpnService : VpnService() {
 
     private fun pushStats() {
         val b = bridge ?: return
+        // Nobody can see the figures with the screen off: the counters live in
+        // the bridge and the first visible frame reads them later. Skipping the
+        // snapshot keeps the event channel and the main thread quiet during the
+        // sleep instead of waking them every few seconds for nothing.
+        if (!screenInteractive) return
+        val now = SystemClock.elapsedRealtime()
+        // The window is hidden but the screen is on: the notification is the
+        // only consumer, and a byte counter in the panel does not need a fresh
+        // number every second. A visible window keeps the full rate.
+        val visible = VpnState.uiVisible
+        if (!visible && now - lastStatsPushAt < HIDDEN_STATS_INTERVAL_MS) return
+        lastStatsPushAt = now
         val rx = b.rxBytes()
         val tx = b.txBytes()
         val exit = try {

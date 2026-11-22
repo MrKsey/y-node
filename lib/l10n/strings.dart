@@ -633,6 +633,7 @@ class L10n {
     'sectionAbout': 'About',
     'version': 'Version',
     'yggVersion': 'Yggdrasil version',
+    'wakeUps24h': 'Wake-ups (24 h)',
     'yggAddress': 'Node address',
     'sourceCode': 'Source code',
     'clientSourceHint': 'github.com/MrKsey/y-node',

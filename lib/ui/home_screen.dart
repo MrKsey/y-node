@@ -95,6 +95,7 @@ class HomeScreen extends StatelessWidget {
               exitOn: state.settings.exitActive,
               exitInUse: state.exitInUse,
               exitWarning: exitWarning,
+              traffic: state.traffic,
               onIpRequest: (anchor, viaExit) => showIpBalloon(
                 context: context,
                 anchorContext: anchor,
@@ -509,6 +510,7 @@ class _Hero extends StatefulWidget {
     required this.exitOn,
     required this.exitInUse,
     required this.exitWarning,
+    required this.traffic,
     required this.onIpRequest,
     this.errorText,
   });
@@ -541,6 +543,10 @@ class _Hero extends StatefulWidget {
   /// suspended this client.
   final bool exitWarning;
 
+  /// The live byte counters. The flow dots follow them: a link that carries
+  /// nothing is drawn still instead of repainting at 60 fps for nothing.
+  final ValueListenable<TrafficCounters> traffic;
+
   /// Opens the address balloon: the phone's own address or the one the exit
   /// sends the traffic from. The first argument is the widget to point at.
   final void Function(BuildContext anchor, bool viaExit) onIpRequest;
@@ -555,20 +561,41 @@ class _HeroState extends State<_Hero> with SingleTickerProviderStateMixin {
     duration: const Duration(milliseconds: 1400),
   );
 
+  /// The counters of the previous tick, -1 before the first one arrives.
+  int _lastRx = -1;
+  int _lastTx = -1;
+
   @override
   void initState() {
     super.initState();
+    widget.traffic.addListener(_onTraffic);
     _syncAnimation();
   }
 
   @override
   void didUpdateWidget(covariant _Hero oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.traffic != widget.traffic) {
+      oldWidget.traffic.removeListener(_onTraffic);
+      widget.traffic.addListener(_onTraffic);
+    }
     if (oldWidget.establishing != widget.establishing ||
         oldWidget.busy != widget.busy ||
         oldWidget.connected != widget.connected) {
       _syncAnimation();
     }
+  }
+
+  /// A tick of the byte counters. The dots run for as long as the tunnel is
+  /// up, so the counters do not drive them; they only restart the animation
+  /// when a tick arrives after it was stopped by a pause of the app.
+  void _onTraffic() {
+    final next = widget.traffic.value;
+    if (next.rx == _lastRx && next.tx == _lastTx) return;
+    _lastRx = next.rx;
+    _lastTx = next.tx;
+    if (_pulse.isAnimating) return;
+    _syncAnimation();
   }
 
   void _syncAnimation() {
@@ -585,6 +612,7 @@ class _HeroState extends State<_Hero> with SingleTickerProviderStateMixin {
 
   @override
   void dispose() {
+    widget.traffic.removeListener(_onTraffic);
     _pulse.dispose();
     super.dispose();
   }
@@ -803,7 +831,7 @@ class _Uptime extends StatefulWidget {
   State<_Uptime> createState() => _UptimeState();
 }
 
-class _UptimeState extends State<_Uptime> {
+class _UptimeState extends State<_Uptime> with WidgetsBindingObserver {
   Timer? _timer;
   bool _visible = true;
 
@@ -812,6 +840,25 @@ class _UptimeState extends State<_Uptime> {
   /// without ever starting the timer: the clock only began to tick after the
   /// user switched tabs and came back.
   bool _resolved = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // TickerMode only mutes the tabs that are not selected; it stays enabled
+    // while the whole app is in the background. The clock then kept waking the
+    // engine once a second for a screen nobody was looking at.
+    if (state == AppLifecycleState.resumed) {
+      _sync();
+    } else {
+      _timer?.cancel();
+      _timer = null;
+    }
+  }
 
   @override
   void didChangeDependencies() {
@@ -833,6 +880,10 @@ class _UptimeState extends State<_Uptime> {
     _timer?.cancel();
     _timer = null;
     if (!_visible || widget.connectedAt <= 0) return;
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    if (lifecycle != null && lifecycle != AppLifecycleState.resumed) {
+      return;
+    }
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
@@ -840,6 +891,7 @@ class _UptimeState extends State<_Uptime> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     super.dispose();
   }

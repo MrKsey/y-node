@@ -24,6 +24,10 @@ class PeerSupervisor(
     private val onLog: (String, String) -> Unit,
     private val onActiveChanged: (List<PeerEntry>) -> Unit,
     private val onStats: (up: Int, total: Int, latencyMs: Double, peersJson: String) -> Unit,
+    /** Called when every active peer is down and the pool has nothing to swap
+     *  in. The service then probes the cached catalogue and refills the pool,
+     *  so a tunnel left alone overnight can recover without the app. */
+    private val onPoolEmpty: () -> Unit = {},
 ) {
     private data class Runtime(
         val uri: String,
@@ -55,6 +59,34 @@ class PeerSupervisor(
     private var running = false
     private var thread: Thread? = null
     private var lastRetryAt = 0L
+
+    /** When the service was last asked to refill an empty pool. */
+    private var lastPoolRequestAt = 0L
+
+    /** A forced tick interval for the current visibility, zero to follow the
+     *  health setting. The tunnel keeps running either way: a longer interval
+     *  only means a dead peer is noticed and replaced later, which costs
+     *  nothing while nobody watches the list. */
+    @Volatile
+    private var overrideIntervalMs = 0L
+
+    /** Switches the pace without waiting out the sleep that is running now. */
+    fun setPace(intervalMs: Long) {
+        if (overrideIntervalMs == intervalMs) return
+        overrideIntervalMs = intervalMs
+        synchronized(sleeper) { sleeper.notifyAll() }
+    }
+
+    /** True while the window is on screen. The error history is only attached
+     *  to the peer JSON for a reader that can show it: rebuilding the enriched
+     *  array and writing the map to the store costs work nobody sees while the
+     *  app is in the background. */
+    @Volatile
+    private var uiVisible = false
+
+    fun setUiVisible(value: Boolean) {
+        uiVisible = value
+    }
 
     /** Guards the sleep between ticks so a manual refresh can cut it short. */
     private val sleeper = Object()
@@ -155,11 +187,19 @@ class PeerSupervisor(
             } catch (t: Throwable) {
                 onLog("ERROR", "supervisor tick failed: ${t.message}")
             }
-            val sleep = settings.healthCheckSec.coerceIn(5, 120) * 1000L
+            val base = settings.healthCheckSec.coerceIn(5, 120) * 1000L
+            val sleep = when {
+                // A negative pace means "park": with auto replace off there is
+                // nothing to do while the screen is off, and the loop waits for
+                // a real request instead of waking the CPU on a timer.
+                overrideIntervalMs < 0L -> 0L
+                overrideIntervalMs > 0L -> maxOf(overrideIntervalMs, base)
+                else -> base
+            }
             synchronized(sleeper) {
                 if (!checkRequested && running) {
                     try {
-                        sleeper.wait(sleep)
+                        if (sleep <= 0L) sleeper.wait() else sleeper.wait(sleep)
                     } catch (_: InterruptedException) {
                         return
                     }
@@ -171,7 +211,9 @@ class PeerSupervisor(
     private fun tick(settings: Settings) {
         val raw = node.peersJSON
         val runtime = parse(raw)
-        val peersJson = rememberErrors(raw, runtime)
+        // Only a visible window shows the stored error of a recovered peer; a
+        // hidden one is content with the raw answer of the node.
+        val peersJson = if (uiVisible) rememberErrors(raw, runtime) else raw
         // Yggdrasil keeps a configured peer under its scheme, host, port and
         // path and drops the options from the live link info. A pinned exit
         // peer is configured with `?key=...`, so the exact URI never matches
@@ -239,7 +281,20 @@ class PeerSupervisor(
                 }
             }
 
-            // 5. Forget stale penalties and dead timers for peers that are gone.
+            // 5. Nothing is up and the pool is empty: there is nothing left to
+            //    swap in, so the service is asked to probe the cached
+            //    catalogue. At most once every ten minutes: a probe run costs
+            //    real traffic and battery, and a tunnel with no live peer at
+            //    all cannot be saved faster than that anyway.
+            if (settings.autoReplace && up == 0 && pool.isEmpty() &&
+                now - lastPoolRequestAt > POOL_REQUEST_MS
+            ) {
+                lastPoolRequestAt = now
+                onLog("WARN", "no peer is up and the pool is empty, refilling it")
+                onPoolEmpty()
+            }
+
+            // 6. Forget stale penalties and dead timers for peers that are gone.
             val activeUris = active.map { it.uri }.toSet()
             deadSince.keys.retainAll(activeUris)
             penalisedUntil.entries.removeAll { it.value < now }
@@ -418,5 +473,8 @@ class PeerSupervisor(
 
         /** How long a freshly added peer may stay down before it is replaced. */
         private const val GRACE_MS = 90 * 1000L
+
+        /** How often an empty pool may trigger a background probe. */
+        private const val POOL_REQUEST_MS = 10 * 60 * 1000L
     }
 }

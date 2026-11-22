@@ -26,6 +26,13 @@ class RootShell extends StatefulWidget {
 class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
   int _index = 0;
 
+  /// The tabs that have been opened at least once. An [IndexedStack] builds
+  /// every child, so all five screens used to be laid out on the first frame
+  /// and kept alive even if the user never left the tunnel tab. A tab is now
+  /// created when it is first opened and then kept, which is what the stack
+  /// was for.
+  final Set<int> _built = {0};
+
   @override
   void initState() {
     super.initState();
@@ -73,7 +80,20 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
     app.pausePolling();
   }
 
-  void _go(int index) => setState(() => _index = index);
+  void _go(int index) {
+    setState(() {
+      _index = index;
+      _built.add(index);
+    });
+  }
+
+  Widget _tab(int index) => switch (index) {
+    0 => HomeScreen(onOpenPeers: () => _go(1)),
+    1 => PeersScreen(onOpenSettings: () => _go(4)),
+    2 => const AddressBookScreen(),
+    3 => const SplitScreen(),
+    _ => const SettingsScreen(),
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -86,20 +106,14 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
       body: IndexedStack(
         index: _index,
         children: [
-          // TickerMode mutes the animations of the tabs that are not on
-          // screen: the flow animation in the hero must not keep the engine
-          // busy while the user is scrolling through Settings.
-          TickerMode(
-            enabled: _index == 0,
-            child: HomeScreen(onOpenPeers: () => _go(1)),
-          ),
-          TickerMode(
-            enabled: _index == 1,
-            child: PeersScreen(onOpenSettings: () => _go(4)),
-          ),
-          TickerMode(enabled: _index == 2, child: const AddressBookScreen()),
-          TickerMode(enabled: _index == 3, child: const SplitScreen()),
-          TickerMode(enabled: _index == 4, child: const SettingsScreen()),
+          for (var i = 0; i < 5; i++)
+            // TickerMode mutes the animations of the tabs that are not on
+            // screen: the flow animation in the hero must not keep the engine
+            // busy while the user is scrolling through Settings.
+            TickerMode(
+              enabled: _index == i,
+              child: _built.contains(i) ? _tab(i) : const SizedBox.shrink(),
+            ),
         ],
       ),
       bottomNavigationBar: NavigationBar(

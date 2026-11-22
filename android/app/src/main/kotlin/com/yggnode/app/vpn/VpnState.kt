@@ -63,11 +63,26 @@ object VpnState {
     var current: Snapshot = Snapshot()
         private set
 
+    /**
+     * True while an activity of the app is on screen. Only the UI feed depends
+     * on it: the tunnel, the peer supervisor and the exit health loop keep
+     * working with the window hidden, they just stop feeding figures nobody
+     * can see and slow their timers down.
+     */
+    @Volatile
+    var uiVisible: Boolean = false
+
     /** Applies a change and notifies the listeners on the main thread. */
     fun update(transform: (Snapshot) -> Snapshot) {
         val next = transform(current)
         if (next == current) return
         current = next
+        // A hidden window has nothing to redraw. The first visible frame asks
+        // for its own snapshot (`YggVpnService.onUiShown`), so posting here
+        // would only wake the main thread and the Dart isolate for a tree
+        // nobody sees. The state itself is still updated: the notification and
+        // `getState` read it directly.
+        if (!uiVisible) return
         val payload = next
         main.post {
             for (listener in listeners) {

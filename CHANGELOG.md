@@ -4,6 +4,31 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.20] — 2026-11-22
+
+### Changed
+
+- The wake lock that keeps the CPU up after a burst of traffic with the screen off now lasts three seconds instead of ten. It is renewed by every further burst, so a download keeps the CPU up for as long as it runs and the speed is not limited; only the tail after the last packet is shorter.
+- **Settings → Diagnostics** shows how many wake-up alarms the tunnel fired today, so the background work can be checked on the phone itself.
+- **Save battery** switches itself on when the battery drops below 15% and the phone is not charging. It happens once per discharge: the flag is cleared when the phone starts charging, so a manual switch-off is not overridden again and again.
+- The app reads only the keys it needs when the window comes back to the foreground instead of the whole preference store.
+- The five tabs are created when they are first opened instead of all at once on the first frame.
+- The DNS health check waits while the window is hidden and runs on the first visible frame, instead of resolving a name through the tunnel for a screen nobody sees.
+
+### Fixed
+
+- A tunnel that lost every peer while the replacement pool was empty stayed dead until the app was opened. The service now probes the cached peer catalogue in the background (rounds of five, capped at a minute, at most every ten minutes) and refills the pool, so the tunnel recovers on its own.
+- The peer error history is no longer rebuilt and written to the store while the window is hidden: only a visible screen shows it.
+
+## [1.5.19] — 2026-11-22
+
+### Changed
+
+- The client no longer works in the background when there is nothing to do. With the screen off the peer supervisor and the exit health loop run once per wake-up slot instead of every health interval, and the slot is five minutes (fifteen with **Save battery**). The wake-up alarm is armed only while a tunnel is up and **Replace dropped peers** is on; with the switch off the supervisor parks completely and only a real request wakes it. Without a tunnel nothing is armed at all.
+- A hidden window is no longer redrawn. The service stops building stats with the screen off, drops the event stream while the app is in the background, and the uptime clock stops its one-second timer. On the way back the service sends one fresh round of stats, peer links and exit health, and the periodic poll resumes. The counters in the notification are refreshed every thirty seconds while the window is hidden instead of every second.
+- The exit health check runs at most once a minute with the window hidden and once per wake-up slot with the screen off, so the exit keeps its registration fresh without an HTTP round trip every fifteen seconds.
+- The app polls the service every three seconds while the tunnel is down instead of every second: nothing but a tap can change the screen in that state.
+
 ## [1.5.18] — 2026-11-22
 
 ### Fixed

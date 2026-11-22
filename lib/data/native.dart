@@ -475,6 +475,36 @@ class Native {
     }
   }
 
+  /// Reads only [keys] from the store. A window that comes back to the
+  /// foreground needs the peer list, not the whole catalogue and the caches.
+  static Future<Map<String, String>> readMany(List<String> keys) async {
+    try {
+      final map = await _storage
+          .invokeMapMethod<String, String>('getMany', {'keys': keys})
+          .timeout(const Duration(seconds: 10), onTimeout: () => null);
+      return map ?? const {};
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  /// The battery level in percent and whether the phone is charging. -1 when
+  /// the platform does not answer.
+  static Future<({int level, bool charging})> batteryState() async {
+    try {
+      final map = await _vpn
+          .invokeMapMethod<String, dynamic>('batteryState')
+          .timeout(const Duration(seconds: 5), onTimeout: () => null);
+      if (map == null) return (level: -1, charging: false);
+      return (
+        level: (map['level'] as num?)?.toInt() ?? -1,
+        charging: map['charging'] as bool? ?? false,
+      );
+    } catch (_) {
+      return (level: -1, charging: false);
+    }
+  }
+
   static Future<void> _guard(Future<dynamic> Function() action) async {
     try {
       await action();

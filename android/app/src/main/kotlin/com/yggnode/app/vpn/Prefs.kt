@@ -72,6 +72,26 @@ class Prefs(context: Context) {
 
     fun setOnboarded() = putString(KEY_ONBOARDED, "1")
 
+    /**
+     * Counts the wake-up alarms that fired today. The counter is reset on the
+     * first slot of a new day, so Settings can show how often the tunnel
+     * really woke the phone instead of guessing from the code.
+     */
+    fun noteWakeUp() {
+        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+            .format(java.util.Date())
+        val day = getString(KEY_WAKE_DAY)
+        val count = if (day == today) {
+            (getString(KEY_WAKE_COUNT)?.toIntOrNull() ?: 0) + 1
+        } else {
+            1
+        }
+        sp.edit()
+            .putString(KEY_WAKE_DAY, today)
+            .putString(KEY_WAKE_COUNT, count.toString())
+            .apply()
+    }
+
     companion object {
         private const val FILE = "y_node_store"
 
@@ -88,6 +108,14 @@ class Prefs(context: Context) {
         const val KEY_PEERS_UPDATED = "peers_updated_at"
         const val KEY_PEER_SNAPSHOT = "peers_snapshot"
         const val KEY_PEER_ERRORS = "peer_errors"
+
+        /** The last public peer catalogue, written by the UI and used by the
+         *  service when it has to refill an empty pool on its own. */
+        const val KEY_PEER_CACHE = "peers_cache"
+
+        /** Wake-up counter of the current day, see [noteWakeUp]. */
+        const val KEY_WAKE_COUNT = "wake_count"
+        const val KEY_WAKE_DAY = "wake_day"
 
         /** "1" while the user wants the tunnel up, "0" after a manual disconnect.
          *  It survives a package replace so the tunnel can be brought back. */

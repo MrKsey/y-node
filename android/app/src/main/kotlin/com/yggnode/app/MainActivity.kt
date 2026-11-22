@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.net.VpnService
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -69,6 +70,13 @@ class MainActivity : FlutterActivity() {
     private lateinit var prefs: Prefs
     private var pendingPrepare: MethodChannel.Result? = null
 
+    /**
+     * The status listener of the current engine. A recreated activity leaves
+     * the old engine detached, and its sink would keep failing on every
+     * snapshot; the listener is removed with the engine instead.
+     */
+    private var statusListener: ((VpnState.Snapshot) -> Unit)? = null
+
     private val goLogger = object : yggnode.Logger {
         override fun log(level: String, message: String) {
             ConnectionLog.append("YGG/${level.uppercase()}", message)
@@ -91,26 +99,33 @@ class MainActivity : FlutterActivity() {
         }
         EventChannel(messenger, STATUS_CHANNEL).setStreamHandler(
             object : EventChannel.StreamHandler {
-                private var listener: ((VpnState.Snapshot) -> Unit)? = null
-
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                     val sink = events ?: return
                     val l: (VpnState.Snapshot) -> Unit = { snapshot ->
-                        mainHandler.post {
-                            try {
-                                sink.success(snapshot.toMap())
-                            } catch (_: Exception) {
+                        // A hidden window has no frames to show: the snapshots
+                        // would only cross the channel and wake the Dart
+                        // isolate. The first visible frame asks for its own
+                        // round through `onUiShown`.
+                        if (VpnState.uiVisible) {
+                            mainHandler.post {
+                                try {
+                                    sink.success(snapshot.toMap())
+                                } catch (_: Exception) {
+                                }
                             }
                         }
                     }
-                    listener = l
+                    // A second listen on the same engine replaces the old one
+                    // instead of leaving a duplicate behind.
+                    statusListener?.let { VpnState.removeListener(it) }
+                    statusListener = l
                     VpnState.addListener(l)
                     sink.success(VpnState.current.toMap())
                 }
 
                 override fun onCancel(arguments: Any?) {
-                    listener?.let { VpnState.removeListener(it) }
-                    listener = null
+                    statusListener?.let { VpnState.removeListener(it) }
+                    statusListener = null
                 }
             },
         )
@@ -354,6 +369,15 @@ class MainActivity : FlutterActivity() {
 
             "isBatteryExempt" -> result.success(isBatteryExempt())
 
+            "batteryState" -> {
+                // The level and the charging flag let the app switch "Save
+                // battery" on by itself when the phone is about to run flat.
+                val manager = getSystemService(BATTERY_SERVICE) as? BatteryManager
+                val level = manager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+                val charging = manager?.isCharging ?: false
+                result.success(mapOf("level" to level, "charging" to charging))
+            }
+
             "requestBatteryExemption" -> {
                 requestBatteryExemption()
                 result.success(null)
@@ -445,6 +469,12 @@ class MainActivity : FlutterActivity() {
 
     override fun onResume() {
         super.onResume()
+        // The service keeps the tunnel alive with the window hidden, but it
+        // must not push figures nobody sees. The window announces itself
+        // instead, and asks for one fresh round on the way back: after a long
+        // pause the counters, the peer links and the exit health are stale.
+        VpnState.uiVisible = true
+        YggVpnService.onUiShown()
         // On Android 12 the VPN consent dialog can come back without a result
         // (the activity may be recreated behind it). If the permission is
         // already granted, finish the waiting call here.
@@ -458,6 +488,15 @@ class MainActivity : FlutterActivity() {
             pendingPrepare = null
             result.success(true)
         }
+    }
+
+    override fun onPause() {
+        // Not on screen any more: the service stops feeding the event channel
+        // with stats and lets its timers run at the background pace. The
+        // tunnel itself is untouched.
+        VpnState.uiVisible = false
+        YggVpnService.onUiHidden()
+        super.onPause()
     }
 
     // ------------------------------------------------------------------
@@ -487,6 +526,18 @@ class MainActivity : FlutterActivity() {
             }
 
             "all" -> result.success(prefs.snapshot())
+
+            "getMany" -> {
+                // The window re-reads a handful of keys on every return to the
+                // foreground; sending the whole store each time is needless
+                // work when the peer list is all it needs.
+                val keys = call.argument<List<String>>("keys") ?: emptyList()
+                val out = HashMap<String, String>()
+                for (key in keys) {
+                    prefs.getString(key)?.let { out[key] = it }
+                }
+                result.success(out)
+            }
 
             else -> result.notImplemented()
         }
@@ -534,6 +585,10 @@ class MainActivity : FlutterActivity() {
             pendingPrepare = null
             it.error("cancelled", "The activity was closed", null)
         }
+        // The engine is detached with the activity: its sink can no longer
+        // deliver, so the snapshot listener must not outlive it.
+        statusListener?.let { VpnState.removeListener(it) }
+        statusListener = null
         super.onDestroy()
     }
 }
