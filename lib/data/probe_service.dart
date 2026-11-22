@@ -104,23 +104,20 @@ class ProbeService {
       );
     }
 
-    // The home country is probed first, and a round only stops early once
-    // every server of it had its chance. Sorting the whole list by TCP time
-    // alone put a German datacenter ahead of a node next door, and the run then
-    // ended with a list that had no local peers at all.
-    int priorityOf(PeerCandidate candidate) =>
-        homeCountry.isNotEmpty && candidate.country == homeCountry ? 0 : 1;
-    final homeTotal = candidates.where((c) => priorityOf(c) == 0).length;
-
-    final ordered = [...candidates];
-    ordered.sort((a, b) {
-      final byCountry = priorityOf(a) - priorityOf(b);
-      if (byCountry != 0) return byCountry;
-      final aRtt = rtts[a.host] ?? double.infinity;
-      final bRtt = rtts[b.host] ?? double.infinity;
-      if (aRtt != bRtt) return aRtt.compareTo(bRtt);
-      return a.uri.compareTo(b.uri);
-    });
+    // The home country is probed first, so a local peer is never starved by a
+    // fast datacenter abroad, and the rest follows in TCP-time order, which is
+    // the closest thing to "nearest" before the protocol answers. The country
+    // is only a prior: a round also tests the nearest foreign servers, because
+    // the peers next door may sit across the border, and the final list is
+    // ordered by the measured Yggdrasil time alone.
+    final ordered = probeQueue(candidates, rtts, homeCountry);
+    final homeTotal = candidates
+        .where((c) => homeCountry.isNotEmpty && c.country == homeCountry)
+        .length;
+    // Enough foreign servers are tested to compare them with the local ones:
+    // without this a country with many peers ended the round on its own nodes
+    // and a faster neighbour across the border never got a chance.
+    final foreignTarget = targetAlive;
 
     final alive = <ProbeResult>[];
     final dead = <ProbeResult>[];
@@ -135,7 +132,12 @@ class ProbeService {
           totalCandidates: candidates.length,
         );
       }
-      if (alive.length >= targetAlive && tested >= homeTotal) break;
+      final foreignTested = tested > homeTotal ? tested - homeTotal : 0;
+      if (alive.length >= targetAlive &&
+          tested >= homeTotal &&
+          foreignTested >= foreignTarget) {
+        break;
+      }
 
       final slice = ordered.skip(start).take(batch).toList();
       final uris = [for (final candidate in slice) candidate.uri];
@@ -168,22 +170,52 @@ class ProbeService {
       );
     }
 
-    // The fastest answer first, but the servers of the home country stay on
-    // top: that is the order the Results card shows and "Add the best N"
-    // keeps.
-    alive.sort((a, b) {
-      final byCountry =
-          (homeCountry.isNotEmpty && a.country == homeCountry ? 0 : 1) -
-          (homeCountry.isNotEmpty && b.country == homeCountry ? 0 : 1);
-      if (byCountry != 0) return byCountry;
-      return a.latencyMs.compareTo(b.latencyMs);
-    });
+    // The fastest answer first. The country is not a tie-breaker: a server in
+    // Moscow and one in Finland may both be nearer than a node in Vladivostok,
+    // and the card must show the real order of access time.
+    sortByLatency(alive);
     return ProbeSession(
       alive: alive,
       dead: dead,
       cancelled: false,
       totalCandidates: candidates.length,
     );
+  }
+
+  /// The order in which a round probes the candidates: the servers of the home
+  /// country first, then everything else, each group by the measured TCP time.
+  /// A host the TCP pass could not time (a QUIC-only peer) goes last in its
+  /// group: the protocol probe still tests it when the group is reached.
+  static List<PeerCandidate> probeQueue(
+    List<PeerCandidate> candidates,
+    Map<String, double> rtts,
+    String homeCountry,
+  ) {
+    int homeOf(PeerCandidate candidate) =>
+        homeCountry.isNotEmpty && candidate.country == homeCountry ? 0 : 1;
+    double rttOf(PeerCandidate candidate) =>
+        rtts[candidate.host] ?? double.infinity;
+
+    final ordered = [...candidates];
+    ordered.sort((a, b) {
+      final byCountry = homeOf(a) - homeOf(b);
+      if (byCountry != 0) return byCountry;
+      final aRtt = rttOf(a);
+      final bRtt = rttOf(b);
+      if (aRtt != bRtt) return aRtt.compareTo(bRtt);
+      return a.uri.compareTo(b.uri);
+    });
+    return ordered;
+  }
+
+  /// The order the Results card shows and "Add the best N" keeps: the lowest
+  /// access time first, whatever the country of the server is.
+  static void sortByLatency(List<ProbeResult> rows) {
+    rows.sort((a, b) {
+      final byLatency = a.latencyMs.compareTo(b.latencyMs);
+      if (byLatency != 0) return byLatency;
+      return a.uri.compareTo(b.uri);
+    });
   }
 }
 

@@ -438,9 +438,9 @@ class _ResultsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // The card keeps the order the probe produced: the servers of the home
-    // country first, each group by latency. That is exactly the order "Add the
-    // best N" keeps, so the button never picks a row from below the fold.
+    // The card keeps the order the probe produced: the lowest access time
+    // first, whatever country the server is in. That is exactly the order "Add
+    // the best N" keeps, so the button never picks a row from below the fold.
     final alive = state.probeAlive;
     // The tunnel keeps the configured number of links, so the button replaces
     // the slowest of them instead of appending more.

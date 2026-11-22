@@ -4,6 +4,12 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.18] — 2026-11-22
+
+### Fixed
+
+- **Find peers ranks the answers by access time, not by country.** The list was grouped: every server of the detected country came first, so a node in Vladivostok was shown above a faster one in Finland. The country is only a prior now — the round still starts with the local servers, but it also tests the nearest foreign ones, and the Results card, **Add the best N** and the replacement pool all follow the measured Yggdrasil time. A client whose country has no peers of its own falls back to the closest countries, as before.
+
 ## [1.5.17] — 2026-11-22
 
 ### Fixed
