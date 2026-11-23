@@ -103,10 +103,25 @@ class PeerSupervisor(
      * nothing. The full list comes back from [suspended] when the screen is on;
      * the store is left untouched, so a restart of the service always reads the
      * list the user configured.
+     *
+     * While the mode is on the loop parks itself: nothing but the exit link is
+     * left, and the wake-up alarm already asks for a check on every slot, so a
+     * timer here would only wake the CPU twice for the same look.
      */
     fun setExitOnly(on: Boolean) {
         if (exitOnly == on) return
         exitOnly = on
+        try {
+            applyExitOnlyLocked(on)
+        } finally {
+            // The loop may be asleep for the whole screen-off slot. The switch
+            // has to take effect now: parked at once, and back to the normal
+            // pace on the way out.
+            synchronized(sleeper) { sleeper.notifyAll() }
+        }
+    }
+
+    private fun applyExitOnlyLocked(on: Boolean) {
         val now = android.os.SystemClock.elapsedRealtime()
         synchronized(lock) {
             if (on) {
@@ -256,6 +271,11 @@ class PeerSupervisor(
             }
             val base = settings.healthCheckSec.coerceIn(5, 120) * 1000L
             val sleep = when {
+                // Only the exit link is kept while the screen is off. There is
+                // nothing to replace and nothing to top up, and the wake-up
+                // alarm already asks for one check per slot: a timer here would
+                // wake the CPU a second time for the same look.
+                exitOnly -> 0L
                 // A negative pace means "park": with auto replace off there is
                 // nothing to do while the screen is off, and the loop waits for
                 // a real request instead of waking the CPU on a timer.

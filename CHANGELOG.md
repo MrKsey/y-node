@@ -4,6 +4,12 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.22] — 2026-11-23
+
+### Changed
+
+- **Keep only the exit node with the screen off** now parks the peer supervisor for as long as the mode is on. With the public peers gone there is nothing to replace and nothing to top up, and the wake-up alarm already asks for one check per slot, so the loop used to wake the CPU a second time for the same look.
+
 ## [1.5.21] — 2026-11-23
 
 ### Added

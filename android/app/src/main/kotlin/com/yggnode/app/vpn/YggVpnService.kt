@@ -1471,6 +1471,9 @@ class YggVpnService : VpnService() {
         val supervisor = supervisor ?: return
         val autoReplace = prefs.settings().autoReplace
         supervisor.setUiVisible(VpnState.uiVisible)
+        // The "exit node only" mode parks the loop on its own, from the moment
+        // the peers are dropped: the pace below is what it returns to once the
+        // screen is back.
         supervisor.setPace(
             when {
                 // Screen off with auto replace on: one look per wake-up slot,
