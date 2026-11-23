@@ -593,7 +593,19 @@ class L10n {
         'path is clean.',
     'sectionPower': 'Power',
     'energySaving': 'Save battery',
-    'energySavingHint': 'Refresh the UI and the notification less often. The tunnel itself is unaffected',
+    'energySavingHint':
+        'With the screen off, look at the peers every 15 minutes instead of '
+        'every 5 and stop refreshing the notification counters. Traffic keeps '
+        'full speed.',
+    'screenOffExitOnly': 'Keep only the exit node with the screen off',
+    'screenOffExitOnlyHint':
+        'While the screen is off, the public peers are dropped and only the '
+        'exit node link stays up. They come back when the screen turns on. '
+        'Needs an exit node.',
+    'screenOffDisconnect': 'Disconnect with the screen off',
+    'screenOffDisconnectHint':
+        'Close the tunnel when the screen goes off and rebuild it when the '
+        'screen comes back on.',
     'batteryExemption': 'Ignore battery optimisation',
     'batteryOn': 'On — the VPN keeps running with the screen off',
     'batteryOff': 'Off — Android may stop the VPN in the background',
@@ -634,11 +646,10 @@ class L10n {
     'version': 'Version',
     'yggVersion': 'Yggdrasil version',
     'wakeUps24h': 'Wake-ups (24 h)',
+    'transitPeers': 'Transit peers',
     'yggAddress': 'Node address',
     'sourceCode': 'Source code',
     'clientSourceHint': 'github.com/MrKsey/y-node',
-    'yggSource': 'Yggdrasil source code',
-    'yggSourceHint': 'github.com/yggdrasil-network/yggdrasil-go',
     'linkFailed': 'Could not open the link',
     'license': 'License',
     'advanced': 'Advanced',

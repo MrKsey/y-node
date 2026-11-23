@@ -1104,6 +1104,8 @@ class AppSettings {
     this.exitNodeName = '',
     this.connectOnLaunch = false,
     this.startOnBoot = false,
+    this.screenOffExitOnly = false,
+    this.screenOffDisconnect = false,
   });
 
   final int peerCount;
@@ -1166,6 +1168,14 @@ class AppSettings {
   /// the ongoing notification as its only window, and connects only when
   /// [connectOnLaunch] is on or the tunnel was left running.
   final bool startOnBoot;
+
+  /// With the screen off, drop the public peers and keep only the link to the
+  /// exit node. The peers are restored when the screen comes back on.
+  final bool screenOffExitOnly;
+
+  /// With the screen off, close the tunnel and rebuild it when the screen comes
+  /// back on.
+  final bool screenOffDisconnect;
 
   /// True when public traffic should be sent through an exit node.
   bool get exitActive => exitEnabled && exitProfiles.isNotEmpty;
@@ -1248,6 +1258,8 @@ class AppSettings {
     exitNodeName: (json['exitNodeName'] as String?) ?? '',
     connectOnLaunch: (json['connectOnLaunch'] as bool?) ?? false,
     startOnBoot: (json['startOnBoot'] as bool?) ?? false,
+    screenOffExitOnly: (json['screenOffExitOnly'] as bool?) ?? false,
+    screenOffDisconnect: (json['screenOffDisconnect'] as bool?) ?? false,
   );
 
   Map<String, dynamic> toJson() => {
@@ -1279,6 +1291,8 @@ class AppSettings {
     'exitNodeName': exitNodeName,
     'connectOnLaunch': connectOnLaunch,
     'startOnBoot': startOnBoot,
+    'screenOffExitOnly': screenOffExitOnly,
+    'screenOffDisconnect': screenOffDisconnect,
   };
 
   AppSettings copyWith({
@@ -1310,6 +1324,8 @@ class AppSettings {
     String? exitNodeName,
     bool? connectOnLaunch,
     bool? startOnBoot,
+    bool? screenOffExitOnly,
+    bool? screenOffDisconnect,
   }) => AppSettings(
     peerCount: peerCount ?? this.peerCount,
     autoReplace: autoReplace ?? this.autoReplace,
@@ -1339,6 +1355,8 @@ class AppSettings {
     exitNodeName: exitNodeName ?? this.exitNodeName,
     connectOnLaunch: connectOnLaunch ?? this.connectOnLaunch,
     startOnBoot: startOnBoot ?? this.startOnBoot,
+    screenOffExitOnly: screenOffExitOnly ?? this.screenOffExitOnly,
+    screenOffDisconnect: screenOffDisconnect ?? this.screenOffDisconnect,
   );
 }
 
@@ -1374,6 +1392,7 @@ class VpnSnapshot {
     this.txBytes = 0,
     this.peersUp = 0,
     this.peersTotal = 0,
+    this.transitPeers = 0,
     this.latencyMs = 0,
     this.connectedAt = 0,
     this.dns = '',
@@ -1395,6 +1414,11 @@ class VpnSnapshot {
   final int txBytes;
   final int peersUp;
   final int peersTotal;
+
+  /// How many nodes chose this one as their parent in the spanning tree, that
+  /// is, how many send their traffic through this node. Zero means the node is
+  /// a leaf and nothing but its own traffic passes it.
+  final int transitPeers;
   final double latencyMs;
   final int connectedAt;
   final String dns;
@@ -1447,6 +1471,7 @@ class VpnSnapshot {
     txBytes: (map['txBytes'] as num?)?.toInt() ?? 0,
     peersUp: (map['peersUp'] as num?)?.toInt() ?? 0,
     peersTotal: (map['peersTotal'] as num?)?.toInt() ?? 0,
+    transitPeers: (map['transitPeers'] as num?)?.toInt() ?? 0,
     latencyMs: (map['latencyMs'] as num?)?.toDouble() ?? 0,
     connectedAt: (map['connectedAt'] as num?)?.toInt() ?? 0,
     dns: (map['dns'] as String?) ?? '',

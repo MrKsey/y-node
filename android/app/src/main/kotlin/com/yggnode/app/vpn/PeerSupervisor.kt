@@ -88,6 +88,73 @@ class PeerSupervisor(
         uiVisible = value
     }
 
+    /** Peers dropped by the screen-off "exit node only" mode, in the order they
+     *  were configured, restored on the next wake. */
+    private val suspended = mutableListOf<PeerEntry>()
+
+    /** True while the screen is off and only the pinned exit links stay up. */
+    @Volatile
+    private var exitOnly = false
+
+    /**
+     * Screen-off mode: drop every public peer and keep only the pinned links of
+     * the exit node, so the radio is not kept awake by the mesh while the phone
+     * sleeps. Without a pinned peer there is nothing to keep and the call does
+     * nothing. The full list comes back from [suspended] when the screen is on;
+     * the store is left untouched, so a restart of the service always reads the
+     * list the user configured.
+     */
+    fun setExitOnly(on: Boolean) {
+        if (exitOnly == on) return
+        exitOnly = on
+        val now = android.os.SystemClock.elapsedRealtime()
+        synchronized(lock) {
+            if (on) {
+                if (active.none { it.pinned }) {
+                    // No exit node in the list: the switch has nothing to keep.
+                    exitOnly = false
+                    return
+                }
+                val drop = active.filter { !it.pinned }
+                if (drop.isEmpty()) return
+                suspended.clear()
+                suspended.addAll(drop)
+                for (peer in drop) {
+                    try {
+                        node.removePeer(peer.uri)
+                    } catch (t: Throwable) {
+                        onLog("WARN", "could not remove ${peer.uri}: ${t.message}")
+                    }
+                    deadSince.remove(peer.uri)
+                    addedAt.remove(peer.uri)
+                }
+                active.removeAll { !it.pinned }
+                onLog(
+                    "INFO",
+                    "screen off: ${drop.size} peer(s) dropped, only the exit node stays",
+                )
+                onActiveChanged(active.toList())
+                return
+            }
+            if (suspended.isEmpty()) return
+            val restored = suspended.toList()
+            suspended.clear()
+            for (peer in restored) {
+                if (active.any { it.uri == peer.uri }) continue
+                try {
+                    node.addPeer(peer.uri)
+                } catch (t: Throwable) {
+                    onLog("ERROR", "could not restore ${peer.uri}: ${t.message}")
+                    continue
+                }
+                active.add(peer)
+                addedAt[peer.uri] = now
+            }
+            onLog("INFO", "screen on: ${restored.size} peer(s) restored")
+            onActiveChanged(active.toList())
+        }
+    }
+
     /** Guards the sleep between ticks so a manual refresh can cut it short. */
     private val sleeper = Object()
 
@@ -261,8 +328,10 @@ class PeerSupervisor(
                 }
             }
 
-            // 3. Keep the active list at the configured size.
-            topUpLocked(settings, now)
+            // 3. Keep the active list at the configured size. Not while only
+            //    the exit link is meant to stay: the public peers are dropped
+            //    on purpose and must not be topped up again until the wake.
+            if (!exitOnly) topUpLocked(settings, now)
 
             // 4. Nothing is up and there is nothing to swap in: ask the node to
             //    dial again, at most once every 30 seconds.
@@ -286,7 +355,7 @@ class PeerSupervisor(
             //    catalogue. At most once every ten minutes: a probe run costs
             //    real traffic and battery, and a tunnel with no live peer at
             //    all cannot be saved faster than that anyway.
-            if (settings.autoReplace && up == 0 && pool.isEmpty() &&
+            if (settings.autoReplace && !exitOnly && up == 0 && pool.isEmpty() &&
                 now - lastPoolRequestAt > POOL_REQUEST_MS
             ) {
                 lastPoolRequestAt = now

@@ -69,11 +69,20 @@ void main() {
       const defaults = AppSettings();
       expect(defaults.connectOnLaunch, isFalse);
       expect(defaults.startOnBoot, isFalse);
+      expect(defaults.screenOffExitOnly, isFalse);
+      expect(defaults.screenOffDisconnect, isFalse);
 
-      const settings = AppSettings(connectOnLaunch: true, startOnBoot: true);
+      const settings = AppSettings(
+        connectOnLaunch: true,
+        startOnBoot: true,
+        screenOffExitOnly: true,
+        screenOffDisconnect: true,
+      );
       final restored = AppSettings.fromJson(settings.toJson());
       expect(restored.connectOnLaunch, isTrue);
       expect(restored.startOnBoot, isTrue);
+      expect(restored.screenOffExitOnly, isTrue);
+      expect(restored.screenOffDisconnect, isTrue);
     });
   });
 

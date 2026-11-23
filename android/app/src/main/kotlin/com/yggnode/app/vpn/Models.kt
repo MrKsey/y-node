@@ -186,6 +186,12 @@ data class Settings(
     val connectOnLaunch: Boolean = false,
     /** Start the service when the phone boots, without opening the window. */
     val startOnBoot: Boolean = false,
+    /** With the screen off keep only the exit node link and drop the public
+     *  peers, so the radio is not kept busy by the mesh while nobody watches. */
+    val screenOffExitOnly: Boolean = false,
+    /** With the screen off close the tunnel and rebuild it when the screen
+     *  comes back. The service stays in the panel to hear the screen go on. */
+    val screenOffDisconnect: Boolean = false,
 ) {
     /** The label sent to the exit node: the custom name or the device name. */
     fun exitLabel(deviceName: String): String {
@@ -258,6 +264,8 @@ data class Settings(
         put("exitNodeName", exitNodeName)
         put("connectOnLaunch", connectOnLaunch)
         put("startOnBoot", startOnBoot)
+        put("screenOffExitOnly", screenOffExitOnly)
+        put("screenOffDisconnect", screenOffDisconnect)
     }
 
     companion object {
@@ -319,6 +327,14 @@ data class Settings(
                     exitNodeName = o.optString("exitNodeName", d.exitNodeName),
                     connectOnLaunch = o.optBoolean("connectOnLaunch", d.connectOnLaunch),
                     startOnBoot = o.optBoolean("startOnBoot", d.startOnBoot),
+                    screenOffExitOnly = o.optBoolean(
+                        "screenOffExitOnly",
+                        d.screenOffExitOnly,
+                    ),
+                    screenOffDisconnect = o.optBoolean(
+                        "screenOffDisconnect",
+                        d.screenOffDisconnect,
+                    ),
                 )
             } catch (_: Exception) {
                 Settings()

@@ -4,6 +4,19 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.21] — 2026-11-23
+
+### Added
+
+- **Settings → Diagnostics** shows **Transit peers**: how many nodes chose this one as their parent in the spanning tree and therefore send their traffic through it. Zero means the phone is a leaf and only its own traffic passes the node.
+- **Settings → Power → Keep only the exit node with the screen off** drops every public peer while the screen is off and keeps just the link to the exit node. The peers come back when the screen turns on, and the switch does nothing when no exit node is configured.
+- **Settings → Power → Disconnect with the screen off** closes the tunnel when the screen goes off and rebuilds it when the screen comes back. The service stays in the notification panel with a "Paused while the screen is off" note, because Android does not deliver `ACTION_SCREEN_ON` to a manifest receiver and the running service is the only place that can hear the screen return.
+
+### Changed
+
+- **Settings → About** starts with the app version and no longer links to the Yggdrasil source code.
+- The **Save battery** description now matches what the switch does: with the screen off the peers are checked every fifteen minutes instead of every five and the notification counters stay still until the screen is back, while traffic keeps full speed.
+
 ## [1.5.20] — 2026-11-22
 
 ### Changed

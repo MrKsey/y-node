@@ -741,6 +741,7 @@ class AppState extends ChangeNotifier {
     value.publicKey,
     value.peersUp,
     value.peersTotal,
+    value.transitPeers,
     value.latencyMs,
     value.connectedAt,
     value.dns,

@@ -6,6 +6,7 @@
 package yggnode
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
@@ -854,6 +855,35 @@ func (n *Node) GetPeersJSON() string {
 		return "[]"
 	}
 	return string(b)
+}
+
+// GetTransitCount returns how many nodes chose this one as their parent in the
+// spanning tree. Each of them sends its traffic through this node, so a
+// non-zero value is the only reliable sign of transit: a leaf node that merely
+// reaches the network through its peers always reports zero.
+func (n *Node) GetTransitCount() int {
+	n.mu.Lock()
+	c := n.core
+	running := n.running
+	n.mu.Unlock()
+	if !running || c == nil {
+		return 0
+	}
+	self := c.PublicKey()
+	count := 0
+	for _, entry := range c.GetTree() {
+		if len(entry.Key) != ed25519.PublicKeySize || len(entry.Parent) != ed25519.PublicKeySize {
+			continue
+		}
+		// The node itself is listed with its own parent; it is not a child.
+		if bytes.Equal(entry.Key, self) {
+			continue
+		}
+		if bytes.Equal(entry.Parent, self) {
+			count++
+		}
+	}
+	return count
 }
 
 // GetAddress returns the node IPv6 address.

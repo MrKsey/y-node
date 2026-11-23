@@ -438,6 +438,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
               const Divider(height: 1),
+              SwitchListTile(
+                value: settings.screenOffExitOnly,
+                secondary: const Icon(Icons.vpn_lock_rounded),
+                onChanged: (value) =>
+                    save(settings.copyWith(screenOffExitOnly: value)),
+                title: Text(l10n.t('screenOffExitOnly')),
+                subtitle: Text(
+                  l10n.t('screenOffExitOnlyHint'),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              const Divider(height: 1),
+              SwitchListTile(
+                value: settings.screenOffDisconnect,
+                secondary: const Icon(Icons.power_settings_new_rounded),
+                onChanged: (value) =>
+                    save(settings.copyWith(screenOffDisconnect: value)),
+                title: Text(l10n.t('screenOffDisconnect')),
+                subtitle: Text(
+                  l10n.t('screenOffDisconnectHint'),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              const Divider(height: 1),
               // The exemption is a switch, as in SoftSSTP: turning it on asks
               // Android for the exemption, turning it off opens the system list
               // where the user has to remove it by hand.
@@ -495,6 +523,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: l10n.t('sectionLogs'),
             children: [
               InfoRow(label: l10n.t('wakeUps24h'), value: '${state.wakeCount}'),
+              const Divider(height: 1),
+              InfoRow(
+                label: l10n.t('transitPeers'),
+                value: state.snapshot.isConnected
+                    ? '${state.snapshot.transitPeers}'
+                    : '—',
+              ),
               const Divider(height: 1),
               SwitchListTile(
                 value: settings.logging,
@@ -640,6 +675,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: l10n.t('sectionAbout'),
             children: [
               InfoRow(
+                label: l10n.t('version'),
+                value: state.appVersion.isEmpty ? '—' : state.appVersion,
+              ),
+              InfoRow(
                 label: l10n.t('yggVersion'),
                 value: state.yggVersion.isEmpty ? '—' : state.yggVersion,
               ),
@@ -647,11 +686,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 label: l10n.t('sourceCode'),
                 value: l10n.t('clientSourceHint'),
                 onTap: () => _openClientSource(context, l10n),
-              ),
-              InfoRow(
-                label: l10n.t('yggSource'),
-                value: l10n.t('yggSourceHint'),
-                onTap: () => _openYggdrasilSource(context, l10n),
               ),
               InfoRow(label: l10n.t('license'), value: 'GPL-3.0'),
             ],
@@ -699,19 +733,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   static Future<void> _openClientSource(BuildContext context, L10n l10n) async {
     final opened = await launchUrl(
       Uri.parse('https://github.com/MrKsey/y-node'),
-      mode: LaunchMode.externalApplication,
-    );
-    if (!opened && context.mounted) {
-      showSnack(context, l10n.t('linkFailed'));
-    }
-  }
-
-  static Future<void> _openYggdrasilSource(
-    BuildContext context,
-    L10n l10n,
-  ) async {
-    final opened = await launchUrl(
-      Uri.parse('https://github.com/yggdrasil-network/yggdrasil-go'),
       mode: LaunchMode.externalApplication,
     );
     if (!opened && context.mounted) {

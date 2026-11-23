@@ -111,6 +111,11 @@ class YggVpnService : VpnService() {
         private const val POOL_PROBE_TIMEOUT_MS = 8_000L
         private const val POOL_PROBE_BUDGET_MS = 60_000L
 
+        /** How often the spanning tree is read for the transit counter. The
+         *  number only moves when a peer changes its parent, so a few seconds
+         *  of lag cost nothing. */
+        private const val TRANSIT_INTERVAL_MS = 10_000L
+
         private const val MAX_REVOKE_ATTEMPTS = 5
         private const val REVOKE_SETTLE_MS = 2_000L
         private const val NETWORK_CHANGE_DEBOUNCE_MS = 1_500L
@@ -425,6 +430,18 @@ class YggVpnService : VpnService() {
     @Volatile
     private var idle = false
 
+    /** True when the tunnel was closed because the screen went off and the
+     *  user asked for that. The service stays in the panel: its screen
+     *  receiver is the only way to hear that the screen is back, because
+     *  ACTION_SCREEN_ON cannot be declared in the manifest. */
+    @Volatile
+    private var screenPaused = false
+
+    /** How many nodes route their traffic through this one. Read from the
+     *  spanning tree on the stats tick and shown in Diagnostics. */
+    private var transitPeers = 0
+    private var lastTransitAt = 0L
+
     /** True once the Go node of this service instance was started. The node
      *  has to be stopped on every teardown: a connect that failed after it was
      *  started used to leave it running, and the next attempt then started a
@@ -500,6 +517,8 @@ class YggVpnService : VpnService() {
                 // The five second foreground deadline is unforgiving: show the
                 // notification before doing anything slow.
                 idle = false
+                // An explicit connect overrides a pause for the screen.
+                screenPaused = false
                 panelConnect = intent?.getBooleanExtra(EXTRA_FROM_PANEL, false) == true
                 goForeground(VpnState.STATUS_CONNECTING, "")
                 stopRequested = false
@@ -510,7 +529,21 @@ class YggVpnService : VpnService() {
             ACTION_IDLE -> {
                 idle = true
                 panelConnect = false
-                goForeground(VpnState.STATUS_DISCONNECTED, "Waiting in the background")
+                // A restart that skipped the connect only because the screen
+                // was off is still a pause: the screen coming back has to
+                // rebuild the tunnel. At boot nothing was wanted, so the flag
+                // stays off and the panel just waits.
+                screenPaused = prefs.getString(Prefs.KEY_WANTED) == "1" &&
+                    prefs.settings().screenOffDisconnect &&
+                    !screenInteractive
+                goForeground(
+                    VpnState.STATUS_DISCONNECTED,
+                    if (screenPaused) {
+                        "Paused while the screen is off"
+                    } else {
+                        "Waiting in the background"
+                    },
+                )
                 START_STICKY
             }
 
@@ -544,7 +577,13 @@ class YggVpnService : VpnService() {
 
     /** What a restart without an intent means for this install. */
     private fun stickyAction(): String {
-        if (prefs.getString(Prefs.KEY_WANTED) == "1") return ACTION_CONNECT
+        if (prefs.getString(Prefs.KEY_WANTED) == "1") {
+            // A restart with the screen off must not rebuild a tunnel the user
+            // asked to keep closed until the screen is back. It stays in the
+            // panel and waits for the window instead.
+            if (prefs.settings().screenOffDisconnect && !screenInteractive) return ACTION_IDLE
+            return ACTION_CONNECT
+        }
         return if (prefs.settings().startOnBoot) ACTION_IDLE else ACTION_DISCONNECT
     }
 
@@ -724,6 +763,16 @@ class YggVpnService : VpnService() {
         goForeground(VpnState.STATUS_CONNECTED, "")
         if (!screenInteractive) {
             scheduleWakeAlarm()
+            // The screen may have gone off while the tunnel was still coming
+            // up: the screen receiver fired before the supervisor existed, so
+            // the two Power switches are applied here as well.
+            if (settings.screenOffDisconnect) {
+                pauseForScreenOff()
+                return
+            }
+            if (settings.screenOffExitOnly) {
+                supervisor?.setExitOnly(true)
+            }
         }
         ConnectionLog.append("SERVICE", "tunnel established")
     }
@@ -1053,6 +1102,10 @@ class YggVpnService : VpnService() {
             ConnectionLog.append("SERVICE", "disconnect requested by the user")
             prefs.putString(Prefs.KEY_WANTED, "0")
         }
+        // A pause for the screen is over as soon as the tunnel is closed for
+        // any other reason: the screen coming back must not rebuild a tunnel
+        // the user has just switched off.
+        screenPaused = false
         stopping = true
         VpnState.setStatus(VpnState.STATUS_DISCONNECTING)
         try {
@@ -1303,6 +1356,33 @@ class YggVpnService : VpnService() {
             "SERVICE",
             if (interactive) "screen on, resuming UI updates" else "screen off, suspending UI updates",
         )
+        val current = prefs.settings()
+        if (!interactive) {
+            // The two Power switches own the screen-off state of the tunnel
+            // itself; the code below only slows the loops down. Closing the
+            // tunnel wins over keeping the exit link: there is nothing to
+            // keep a link to once the tunnel is gone.
+            if (isActive && !stopping) {
+                if (current.screenOffDisconnect) {
+                    pauseForScreenOff()
+                    return
+                }
+                if (current.screenOffExitOnly) {
+                    // The peer calls go into the Go node, so they belong on the
+                    // worker like every other peer edit. The executor keeps
+                    // the order of a quick screen off/on pair.
+                    supervisor?.let { sup -> worker.execute { sup.setExitOnly(true) } }
+                }
+            }
+        } else {
+            if (screenPaused) {
+                resumeFromScreenOff()
+                return
+            }
+            // Restoring the peers is cheap and idempotent: the supervisor
+            // keeps the list that was dropped while the screen was off.
+            supervisor?.let { sup -> worker.execute { sup.setExitOnly(false) } }
+        }
         if (interactive) {
             cancelWakeAlarm()
             mainHandler.removeCallbacks(releaseWakeLockRunnable)
@@ -1329,6 +1409,43 @@ class YggVpnService : VpnService() {
             // moment instead of the ones from before the sleep.
             wakeStats()
         }
+    }
+
+    /**
+     * Closes the tunnel for as long as the screen is off. The service itself
+     * stays in the notification panel: Android does not deliver
+     * ACTION_SCREEN_ON to a manifest receiver, so the running service is the
+     * only place that can hear the screen come back.
+     */
+    private fun pauseForScreenOff() {
+        ConnectionLog.append("SERVICE", "screen off, closing the tunnel until the screen is back")
+        screenPaused = true
+        // The teardown joins the node and the data path, so it runs on the
+        // worker like every other connect and disconnect. A resume that comes
+        // in meanwhile is queued behind it on the same thread.
+        worker.execute {
+            teardown(keepState = false)
+            idle = true
+            mainHandler.post {
+                // The screen may be back already: the resume has posted its
+                // own notification by now, and this one must not overwrite it.
+                if (screenPaused) {
+                    goForeground(VpnState.STATUS_DISCONNECTED, "Paused while the screen is off")
+                }
+            }
+        }
+    }
+
+    /** Rebuilds the tunnel that [pauseForScreenOff] closed. */
+    private fun resumeFromScreenOff() {
+        if (!screenPaused || stopping || destroyed) return
+        screenPaused = false
+        idle = false
+        panelConnect = false
+        stopRequested = false
+        ConnectionLog.append("SERVICE", "screen on, rebuilding the tunnel")
+        goForeground(VpnState.STATUS_CONNECTING, "")
+        worker.execute { runConnect() }
     }
 
     /** One fresh round for a window that just came back on screen. */
@@ -1681,7 +1798,26 @@ class YggVpnService : VpnService() {
         } catch (_: Throwable) {
             ""
         }
-        VpnState.update { it.copy(rxBytes = rx, txBytes = tx, exitStatus = exit) }
+        // How many nodes route through this one. The tree only moves when a
+        // peer changes its parent, so reading it once per ten seconds is
+        // enough and keeps the stats tick cheap.
+        if (visible && now - lastTransitAt >= TRANSIT_INTERVAL_MS) {
+            lastTransitAt = now
+            transitPeers = try {
+                // gomobile exposes the Go int as a long.
+                node.transitCount.toInt()
+            } catch (_: Throwable) {
+                0
+            }
+        }
+        VpnState.update {
+            it.copy(
+                rxBytes = rx,
+                txBytes = tx,
+                exitStatus = exit,
+                transitPeers = transitPeers,
+            )
+        }
         if (screenInteractive || !settings.energySaving) {
             updateNotification()
         }
