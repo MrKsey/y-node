@@ -535,23 +535,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   leading: const Icon(Icons.query_stats_rounded),
                   title: Text(l10n.t('diagnosticsCounters')),
                   children: [
-                    InfoRow(
+                    _CounterRow(
                       label: l10n.t('wakeUps24h'),
+                      description: l10n.t('wakeUps24hHint'),
                       value: '${state.wakeCount}',
+                      onReset: state.resetWakeCount,
                     ),
                     const Divider(height: 1),
-                    InfoRow(
+                    _CounterRow(
                       label: l10n.t('screenOffPauses'),
+                      description: l10n.t('screenOffPausesHint'),
                       value: '${state.screenOffPauses}',
+                      onReset: state.resetScreenOffPauses,
                     ),
                     const Divider(height: 1),
-                    InfoRow(
+                    _CounterRow(
                       label: l10n.t('screenOffDrops'),
+                      description: l10n.t('screenOffDropsHint'),
                       value: '${state.screenOffDrops}',
+                      onReset: state.resetScreenOffDrops,
                     ),
                     const Divider(height: 1),
-                    InfoRow(
+                    // Transit peers is a live gauge of the running tunnel, not
+                    // a tally, so it explains itself but has nothing to reset.
+                    _CounterRow(
                       label: l10n.t('transitPeers'),
+                      description: l10n.t('transitPeersHint'),
                       value: state.snapshot.isConnected
                           ? '${state.snapshot.transitPeers}'
                           : '—',
@@ -1084,6 +1093,71 @@ class _SliderTileState extends State<_SliderTile> {
             ),
         ],
       ),
+    );
+  }
+}
+
+/// A Diagnostics counter: a tap explains what it counts and a long press
+/// clears it. The description stays out of the row, so the value is the only
+/// thing in view until the user asks what it means.
+class _CounterRow extends StatelessWidget {
+  const _CounterRow({
+    required this.label,
+    required this.value,
+    required this.description,
+    this.onReset,
+  });
+
+  final String label;
+  final String value;
+  final String description;
+
+  /// Null for a live gauge such as Transit peers, which has nothing to clear.
+  final Future<void> Function()? onReset;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = L10n.of(context);
+    final theme = Theme.of(context);
+    return InfoRow(
+      label: label,
+      value: value,
+      onTap: () => showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(label),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(description),
+              if (onReset != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  l10n.t('counterResetHint'),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(l10n.t('close')),
+            ),
+          ],
+        ),
+      ),
+      onLongPress: onReset == null
+          ? null
+          : () async {
+              await onReset!();
+              if (context.mounted) {
+                showSnack(context, l10n.tf('counterReset', [label]));
+              }
+            },
     );
   }
 }

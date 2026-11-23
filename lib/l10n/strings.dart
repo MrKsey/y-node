@@ -650,6 +650,21 @@ class L10n {
     'screenOffPauses': 'Screen-off pauses',
     'screenOffDrops': 'Screen-off peer drops',
     'transitPeers': 'Transit peers',
+    'wakeUps24hHint':
+        'How often the tunnel woke the phone today to look at the peers. The '
+        'counter starts over at midnight, and "Save battery" makes the checks '
+        'less frequent.',
+    'screenOffPausesHint':
+        'How often "Disconnect with the screen off" closed the tunnel since '
+        'the counter was last reset.',
+    'screenOffDropsHint':
+        'How often "Keep only the exit node with the screen off" dropped the '
+        'public peers since the counter was last reset.',
+    'transitPeersHint':
+        'How many nodes currently send their traffic through this one. Zero '
+        'means the phone is a leaf and only its own traffic passes the node.',
+    'counterResetHint': 'Long-press the row to reset the counter.',
+    'counterReset': '%s reset',
     'yggAddress': 'Node address',
     'sourceCode': 'Source code',
     'clientSourceHint': 'github.com/MrKsey/y-node',

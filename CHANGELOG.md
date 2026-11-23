@@ -4,6 +4,12 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.25] — 2026-11-24
+
+### Added
+
+- **Settings → Diagnostics → Counters**: a tap on a counter explains what it measures, and a long press clears it, so a fresh measurement can be started without reinstalling the app. Transit peers stays a live value of the running tunnel and has nothing to reset.
+
 ## [1.5.24] — 2026-11-23
 
 ### Fixed

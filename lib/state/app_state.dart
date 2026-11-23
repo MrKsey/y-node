@@ -81,6 +81,13 @@ class AppState extends ChangeNotifier {
   /// it, while a manual switch-off is not overridden over and over.
   static const String _kEnergyAuto = 'energy_auto';
 
+  /// The counters the service keeps for the Diagnostics block. A reset writes
+  /// zero to the same key the service increments, so counting simply goes on.
+  static const String _kWakeCount = 'wake_count';
+  static const String _kWakeDay = 'wake_day';
+  static const String _kScreenOffPauses = 'screen_off_pauses';
+  static const String _kScreenOffDrops = 'screen_off_drops';
+
   /// Below this level the app switches "Save battery" on by itself.
   static const int _lowBatteryPercent = 15;
 
@@ -816,10 +823,10 @@ class AppState extends ChangeNotifier {
       Native.isBatteryExempt(),
       Native.hasNotificationPermission(),
       Native.readMany(const [
-        'wake_count',
-        'wake_day',
-        'screen_off_pauses',
-        'screen_off_drops',
+        _kWakeCount,
+        _kWakeDay,
+        _kScreenOffPauses,
+        _kScreenOffDrops,
       ]),
     ]);
     appVersion = results[0] as String;
@@ -828,9 +835,22 @@ class AppState extends ChangeNotifier {
     notificationsAllowed = results[3] as bool;
     final counters = results[4] as Map<String, String>;
     wakeCount = _wakeCountToday(counters);
-    screenOffPauses = int.tryParse(counters['screen_off_pauses'] ?? '') ?? 0;
-    screenOffDrops = int.tryParse(counters['screen_off_drops'] ?? '') ?? 0;
+    screenOffPauses = int.tryParse(counters[_kScreenOffPauses] ?? '') ?? 0;
+    screenOffDrops = int.tryParse(counters[_kScreenOffDrops] ?? '') ?? 0;
     notifyListeners();
+  }
+
+  /// Clears one Diagnostics counter and shows the zero at once. The service
+  /// keeps counting from the same key, so the next event starts a new tally.
+  Future<void> resetWakeCount() => _resetCounter(_kWakeCount);
+
+  Future<void> resetScreenOffPauses() => _resetCounter(_kScreenOffPauses);
+
+  Future<void> resetScreenOffDrops() => _resetCounter(_kScreenOffDrops);
+
+  Future<void> _resetCounter(String key) async {
+    await Native.write(key, '0');
+    await _loadDiagnostics();
   }
 
   /// Re-reads the peers the service may have replaced while the UI was away and
@@ -846,10 +866,10 @@ class AppState extends ChangeNotifier {
       _kPool,
       _kPeerErrors,
       _kPeersUpdated,
-      'wake_count',
-      'wake_day',
-      'screen_off_pauses',
-      'screen_off_drops',
+      _kWakeCount,
+      _kWakeDay,
+      _kScreenOffPauses,
+      _kScreenOffDrops,
     ]);
     peers = PeerEntry.listFromJson(stored[_kPeers]);
     pool = PeerEntry.listFromJson(stored[_kPool]);
@@ -857,8 +877,8 @@ class AppState extends ChangeNotifier {
     peersUpdatedAt =
         DateTime.tryParse(stored[_kPeersUpdated] ?? '') ?? peersUpdatedAt;
     wakeCount = _wakeCountToday(stored);
-    screenOffPauses = int.tryParse(stored['screen_off_pauses'] ?? '') ?? 0;
-    screenOffDrops = int.tryParse(stored['screen_off_drops'] ?? '') ?? 0;
+    screenOffPauses = int.tryParse(stored[_kScreenOffPauses] ?? '') ?? 0;
+    screenOffDrops = int.tryParse(stored[_kScreenOffDrops] ?? '') ?? 0;
     batteryExempt = await Native.isBatteryExempt();
     if (snapshot.isConnected) {
       await Native.refreshPeers();
@@ -990,8 +1010,8 @@ class AppState extends ChangeNotifier {
         '${now.year.toString().padLeft(4, '0')}-'
         '${now.month.toString().padLeft(2, '0')}-'
         '${now.day.toString().padLeft(2, '0')}';
-    if (stored['wake_day'] != today) return 0;
-    return int.tryParse(stored['wake_count'] ?? '') ?? 0;
+    if (stored[_kWakeDay] != today) return 0;
+    return int.tryParse(stored[_kWakeCount] ?? '') ?? 0;
   }
 
   /// Turns "Save battery" on by itself when the phone is about to run flat.

@@ -172,6 +172,7 @@ class InfoRow extends StatelessWidget {
     required this.label,
     required this.value,
     this.onTap,
+    this.onLongPress,
     this.monospace = false,
     this.valueColor,
   });
@@ -179,6 +180,7 @@ class InfoRow extends StatelessWidget {
   final String label;
   final String value;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
   final bool monospace;
   final Color? valueColor;
 
@@ -187,6 +189,7 @@ class InfoRow extends StatelessWidget {
     final theme = Theme.of(context);
     return InkWell(
       onTap: onTap,
+      onLongPress: onLongPress,
       borderRadius: BorderRadius.circular(14),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
