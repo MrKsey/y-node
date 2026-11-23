@@ -111,27 +111,35 @@ class PeerSupervisor(
     fun setExitOnly(on: Boolean) {
         if (exitOnly == on) return
         exitOnly = on
+        var changed = false
         try {
-            applyExitOnlyLocked(on)
+            changed = applyExitOnlyLocked(on)
         } finally {
-            // The loop may be asleep for the whole screen-off slot. The switch
-            // has to take effect now: parked at once, and back to the normal
-            // pace on the way out.
-            synchronized(sleeper) { sleeper.notifyAll() }
+            // A plain notify is not enough: the loop may have been inside a
+            // tick when the flag moved, so the wake-up would be lost and the
+            // counts would stay at the values from before the drop. The
+            // request flag survives that window and forces one fresh look.
+            requestCheck()
         }
+        // The list changed outside a tick, so the counts in the shared state
+        // are still the ones from before. Publishing them here keeps a window
+        // that is coming back from showing the old "4/4 connected" for the
+        // moment the restore takes.
+        if (changed) publishLiveStats()
     }
 
-    private fun applyExitOnlyLocked(on: Boolean) {
+    /** Drops or restores the public peers. Returns true when the list moved. */
+    private fun applyExitOnlyLocked(on: Boolean): Boolean {
         val now = android.os.SystemClock.elapsedRealtime()
         synchronized(lock) {
             if (on) {
                 if (active.none { it.pinned }) {
                     // No exit node in the list: the switch has nothing to keep.
                     exitOnly = false
-                    return
+                    return false
                 }
                 val drop = active.filter { !it.pinned }
-                if (drop.isEmpty()) return
+                if (drop.isEmpty()) return false
                 suspended.clear()
                 suspended.addAll(drop)
                 for (peer in drop) {
@@ -144,14 +152,15 @@ class PeerSupervisor(
                     addedAt.remove(peer.uri)
                 }
                 active.removeAll { !it.pinned }
+                prefs.noteScreenOffDrop()
                 onLog(
                     "INFO",
                     "screen off: ${drop.size} peer(s) dropped, only the exit node stays",
                 )
                 onActiveChanged(active.toList())
-                return
+                return true
             }
-            if (suspended.isEmpty()) return
+            if (suspended.isEmpty()) return false
             val restored = suspended.toList()
             suspended.clear()
             for (peer in restored) {
@@ -167,6 +176,21 @@ class PeerSupervisor(
             }
             onLog("INFO", "screen on: ${restored.size} peer(s) restored")
             onActiveChanged(active.toList())
+            return true
+        }
+    }
+
+    /** Reads the live peer state and publishes the counts right away. */
+    private fun publishLiveStats() {
+        try {
+            val raw = node.peersJSON
+            val runtime = parse(raw)
+            val up = runtime.count { it.up }
+            val latencies = runtime.filter { it.up && it.latencyMs > 0 }.map { it.latencyMs }
+            val avg = if (latencies.isEmpty()) 0.0 else latencies.average()
+            onStats(up, runtime.size, avg, if (uiVisible) rememberErrors(raw, runtime) else raw)
+        } catch (t: Throwable) {
+            onLog("WARN", "could not read the peer state: ${t.message}")
         }
     }
 

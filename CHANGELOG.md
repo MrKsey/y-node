@@ -4,6 +4,22 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.24] — 2026-11-23
+
+### Fixed
+
+- A window that came back after the screen was off could show the tunnel and every public peer exactly as they were before the pause, even when the "exit node only" mode had dropped the peers or the tunnel had been closed. The service skipped the listeners while the window was hidden, and the first frame after the wake was built from the state that was never delivered; it is now sent explicitly, and the peer counts are published the moment the list changes.
+- A wake-up for the "exit node only" mode could be lost when the screen went off during a supervisor tick, which left the peer counters at their old values until the next alarm. The request flag is set now, so one fresh look always follows the drop or the restore.
+
+### Added
+
+- **Settings → Diagnostics** shows **Screen-off pauses** and **Screen-off peer drops**: how often the two Power switches really fired. A window that comes back already connected cannot tell whether the tunnel was paused or the peers were dropped, so the service counts both.
+
+### Changed
+
+- **Settings → Diagnostics** keeps the counters under a collapsed **Counters** dropdown, so the switch that matters stays in view.
+- **Settings** puts the **Startup** section above **Power**.
+
 ## [1.5.22] — 2026-11-23
 
 ### Changed

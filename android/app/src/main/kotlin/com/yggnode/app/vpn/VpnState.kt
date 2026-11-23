@@ -100,6 +100,25 @@ object VpnState {
         update { it.copy(status = status, error = error) }
     }
 
+    /**
+     * Delivers the current snapshot even when nothing changed. A window that
+     * comes back after a pause has to be told the truth at once: the state may
+     * have been reset while it was hidden (a tunnel closed for the screen), and
+     * [update] had nobody to notify back then.
+     */
+    fun notifyCurrent() {
+        if (!uiVisible) return
+        val payload = current
+        main.post {
+            for (listener in listeners) {
+                try {
+                    listener(payload)
+                } catch (_: Exception) {
+                }
+            }
+        }
+    }
+
     fun setStage(stage: String) {
         update { it.copy(stage = stage) }
     }

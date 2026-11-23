@@ -92,9 +92,27 @@ class Prefs(context: Context) {
             .apply()
     }
 
+    /**
+     * Counts how often the two screen-off options really fired. They are the
+     * only way to tell from the phone whether the tunnel was actually paused or
+     * the peers were actually dropped, instead of guessing from a UI that comes
+     * back already connected.
+     */
+    fun noteScreenOffPause() = increment(KEY_SCREEN_OFF_PAUSES)
+
+    fun noteScreenOffDrop() = increment(KEY_SCREEN_OFF_DROPS)
+
+    fun screenOffPauses(): Int = getString(KEY_SCREEN_OFF_PAUSES)?.toIntOrNull() ?: 0
+
+    fun screenOffDrops(): Int = getString(KEY_SCREEN_OFF_DROPS)?.toIntOrNull() ?: 0
+
+    private fun increment(key: String) {
+        val next = (getString(key)?.toIntOrNull() ?: 0) + 1
+        putString(key, next.toString())
+    }
+
     companion object {
         private const val FILE = "y_node_store"
-
         const val KEY_SETTINGS = "settings"
         const val KEY_PEERS = "peers"
         const val KEY_POOL = "pool"
@@ -116,6 +134,10 @@ class Prefs(context: Context) {
         /** Wake-up counter of the current day, see [noteWakeUp]. */
         const val KEY_WAKE_COUNT = "wake_count"
         const val KEY_WAKE_DAY = "wake_day"
+
+        /** How often the screen-off options fired, see [noteScreenOffPause]. */
+        const val KEY_SCREEN_OFF_PAUSES = "screen_off_pauses"
+        const val KEY_SCREEN_OFF_DROPS = "screen_off_drops"
 
         /** "1" while the user wants the tunnel up, "0" after a manual disconnect.
          *  It survives a package replace so the tunnel can be brought back. */

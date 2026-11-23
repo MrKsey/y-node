@@ -228,6 +228,12 @@ class AppState extends ChangeNotifier {
   /// Settings so the battery work of the tunnel can be checked without adb.
   int wakeCount = 0;
 
+  /// How often the two screen-off options really fired. A window that comes
+  /// back already connected cannot tell whether the tunnel was paused or the
+  /// peers were dropped, so the service counts both.
+  int screenOffPauses = 0;
+  int screenOffDrops = 0;
+
   /// Automatic release check against the project's GitHub releases. Off by
   /// default: the check contacts GitHub, so the user opts in from Settings.
   bool updateCheckEnabled = false;
@@ -809,13 +815,21 @@ class AppState extends ChangeNotifier {
       Native.yggVersion(),
       Native.isBatteryExempt(),
       Native.hasNotificationPermission(),
-      Native.readMany(const ['wake_count', 'wake_day']),
+      Native.readMany(const [
+        'wake_count',
+        'wake_day',
+        'screen_off_pauses',
+        'screen_off_drops',
+      ]),
     ]);
     appVersion = results[0] as String;
     yggVersion = results[1] as String;
     batteryExempt = results[2] as bool;
     notificationsAllowed = results[3] as bool;
-    wakeCount = _wakeCountToday(results[4] as Map<String, String>);
+    final counters = results[4] as Map<String, String>;
+    wakeCount = _wakeCountToday(counters);
+    screenOffPauses = int.tryParse(counters['screen_off_pauses'] ?? '') ?? 0;
+    screenOffDrops = int.tryParse(counters['screen_off_drops'] ?? '') ?? 0;
     notifyListeners();
   }
 
@@ -834,6 +848,8 @@ class AppState extends ChangeNotifier {
       _kPeersUpdated,
       'wake_count',
       'wake_day',
+      'screen_off_pauses',
+      'screen_off_drops',
     ]);
     peers = PeerEntry.listFromJson(stored[_kPeers]);
     pool = PeerEntry.listFromJson(stored[_kPool]);
@@ -841,6 +857,8 @@ class AppState extends ChangeNotifier {
     peersUpdatedAt =
         DateTime.tryParse(stored[_kPeersUpdated] ?? '') ?? peersUpdatedAt;
     wakeCount = _wakeCountToday(stored);
+    screenOffPauses = int.tryParse(stored['screen_off_pauses'] ?? '') ?? 0;
+    screenOffDrops = int.tryParse(stored['screen_off_drops'] ?? '') ?? 0;
     batteryExempt = await Native.isBatteryExempt();
     if (snapshot.isConnected) {
       await Native.refreshPeers();

@@ -1419,6 +1419,7 @@ class YggVpnService : VpnService() {
      */
     private fun pauseForScreenOff() {
         ConnectionLog.append("SERVICE", "screen off, closing the tunnel until the screen is back")
+        prefs.noteScreenOffPause()
         screenPaused = true
         // The teardown joins the node and the data path, so it runs on the
         // worker like every other connect and disconnect. A resume that comes
@@ -1444,12 +1445,23 @@ class YggVpnService : VpnService() {
         panelConnect = false
         stopRequested = false
         ConnectionLog.append("SERVICE", "screen on, rebuilding the tunnel")
+        // The status is set here rather than in `handleConnect`, which runs a
+        // moment later on the worker: the window is already drawing, and it has
+        // to show "Connecting…" instead of the state from before the pause.
+        VpnState.setStatus(VpnState.STATUS_CONNECTING)
         goForeground(VpnState.STATUS_CONNECTING, "")
         worker.execute { runConnect() }
     }
 
     /** One fresh round for a window that just came back on screen. */
     private fun applyUiShown() {
+        // The state may have changed while the window was hidden and nobody was
+        // listening: a tunnel closed for the screen, peers dropped by the
+        // "exit node only" mode. `update` skips the listeners in that case, so
+        // the first visible frame is given the current snapshot explicitly.
+        // Without this the screen came back showing the tunnel and its peers
+        // exactly as they were before the pause.
+        VpnState.notifyCurrent()
         if (!isActive) return
         // The stats loop may be parked in a long screen-off sleep; a visible
         // window needs its first frame at once, not in a minute.
