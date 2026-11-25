@@ -33,8 +33,22 @@ class ExitNodeCard extends StatelessWidget {
     // A suspension does not take the exit offline: the status API still
     // answers, only new connections are refused. The pill names the state; the
     // tunnel screen highlights the exit icon itself.
-    final pillColor = suspended ? Colors.orange : ExitStatusUi.color(uiState);
     final activeProfile = settings.exitActiveProfile;
+    // The SOCKS port answered but the status API did not: a plain SOCKS5 proxy.
+    // The pill says SOCKS5 instead of Online so the empty counters do not look
+    // like a broken node, and it never says Unreachable while traffic flows.
+    final proxyOnly =
+        (active?.apiMissing ?? false) && uiState == ExitUiState.online;
+    final pillText = suspended
+        ? l10n.t('exitSuspendedShort')
+        : proxyOnly
+        ? l10n.t('exitSocksOnlyShort')
+        : ExitStatusUi.label(uiState, l10n);
+    final pillColor = suspended
+        ? Colors.orange
+        : proxyOnly
+        ? theme.colorScheme.tertiary
+        : ExitStatusUi.color(uiState);
     // Both self-check rows describe the live tunnel: the relay association and
     // the IPv6 path only exist while the data path is running. Without the
     // tunnel they would show stale counters and buttons that cannot work, so
@@ -67,13 +81,13 @@ class ExitNodeCard extends StatelessWidget {
       ExitUiState.noProfile => l10n.t('exitCardNoProfileHint'),
       ExitUiState.connecting => l10n.t('exitCardConnectingHint'),
       ExitUiState.online =>
-        l10n.tf('exitCardOnlineHint', [
+        l10n.tf(proxyOnly ? 'exitCardProxyHint' : 'exitCardOnlineHint', [
               active?.name.isNotEmpty == true
                   ? active!.name
                   : (settings.exitActiveProfile?.title ?? ''),
               (active?.latencyMs ?? 0).toStringAsFixed(0),
             ]) +
-            (direct ? ' · ${l10n.t('exitCardDirect')}' : ''),
+            (!proxyOnly && direct ? ' · ${l10n.t('exitCardDirect')}' : ''),
       ExitUiState.degraded => l10n.t('exitCardDegradedHint'),
       ExitUiState.fallback => l10n.t('exitCardFallbackHint'),
       ExitUiState.denied => l10n.t('exitCardDeniedHint'),
@@ -97,12 +111,7 @@ class ExitNodeCard extends StatelessWidget {
             children: [
               Text(l10n.t('exitNode')),
               const SizedBox(width: 8),
-              StatusPill(
-                label: suspended
-                    ? l10n.t('exitSuspendedShort')
-                    : ExitStatusUi.label(uiState, l10n),
-                color: pillColor,
-              ),
+              StatusPill(label: pillText, color: pillColor),
             ],
           ),
           subtitle: Padding(

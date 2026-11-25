@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/http"
 	"testing"
 	"time"
 )
@@ -210,6 +211,79 @@ func TestExitStatusCarriesDNSResolver(t *testing.T) {
 	item = manager.status().Profiles[0]
 	if !item.DNSKnown || item.DNSAddress != "" {
 		t.Fatalf("dns = %q known=%v, want it cleared", item.DNSAddress, item.DNSKnown)
+	}
+}
+
+// A plain SOCKS5 proxy has no /v1/status: the status call fails, but the SOCKS
+// port answers the greeting. Such a profile is online, with the counters simply
+// absent, instead of unreachable while every connection goes through it.
+func TestCheckProfileTreatsAPlainProxyAsOnline(t *testing.T) {
+	profile := ExitProfile{ID: "proxy", Name: "proxy", Address: "200::1", SocksPort: 1080, APIPort: 1081}
+	manager := newAPITestManager(t, profile, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func(conn net.Conn) {
+				defer conn.Close()
+				greeting := make([]byte, 3)
+				if _, err := io.ReadFull(conn, greeting); err != nil {
+					return
+				}
+				_, _ = conn.Write([]byte{5, 0})
+			}(conn)
+		}
+	}()
+	manager.dialSOCKS = func(ctx context.Context, _, _ string) (net.Conn, error) {
+		var dialer net.Dialer
+		return dialer.DialContext(ctx, "tcp", listener.Addr().String())
+	}
+
+	if err := manager.checkProfile(context.Background(), profile); err != nil {
+		t.Fatalf("checkProfile: %v", err)
+	}
+	item := manager.status().Profiles[0]
+	if item.State != exitStateOnline || !item.APIMissing {
+		t.Fatalf("state = %q apiMissing = %v, want online with the API missing", item.State, item.APIMissing)
+	}
+	if item.Error != "" {
+		t.Fatalf("error = %q, want none", item.Error)
+	}
+}
+
+// When the SOCKS port does not answer either, the exit really is unreachable
+// and the status keeps saying so.
+func TestCheckProfileKeepsAnUnreachableExit(t *testing.T) {
+	profile := ExitProfile{ID: "dead", Name: "dead", Address: "200::1", SocksPort: 1080, APIPort: 1081}
+	manager := newAPITestManager(t, profile, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	closed, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := closed.Addr().String()
+	closed.Close()
+	manager.dialSOCKS = func(ctx context.Context, _, _ string) (net.Conn, error) {
+		var dialer net.Dialer
+		return dialer.DialContext(ctx, "tcp", addr)
+	}
+
+	if err := manager.checkProfile(context.Background(), profile); err == nil {
+		t.Fatal("a dead exit was reported as reachable")
+	}
+	item := manager.status().Profiles[0]
+	if item.State != exitStateUnreachable || item.APIMissing {
+		t.Fatalf("state = %q apiMissing = %v, want unreachable", item.State, item.APIMissing)
 	}
 }
 

@@ -89,6 +89,11 @@ type profileHealth struct {
 	// rotated). The card shows a hint instead of pretending the counters are 0.
 	TokenRequired bool
 
+	// APIMissing is true when the status API did not answer but the SOCKS port
+	// did: a plain SOCKS5 proxy has no /v1/status, and calling it unreachable
+	// while every connection goes through it is a lie.
+	APIMissing bool
+
 	// Load reported by the status API of the exit. Refused is the number of
 	// connections the exit turned away since it started, which is how the app
 	// tells a limit problem from a dead exit.
@@ -197,6 +202,11 @@ type exitManager struct {
 	// field so the token tests can point the API client at a local server
 	// instead of a live Yggdrasil address.
 	dialAPI func(ctx context.Context, network, address string) (net.Conn, error)
+
+	// dialSOCKS opens the TCP connection to the SOCKS port of an exit. It is a
+	// field for the same reason as dialAPI: the fallback probe has to reach a
+	// local listener in tests.
+	dialSOCKS func(ctx context.Context, network, address string) (net.Conn, error)
 
 	// udp is the shared SOCKS5 UDP association. udpMu only guards the pointer
 	// and the dial in progress; the association itself is dialed without the
@@ -848,6 +858,26 @@ func (m *exitManager) markSuccess(id string, latency time.Duration) {
 	health.Error = ""
 	health.CheckedAt = time.Now().Unix()
 	health.deniedUntil = time.Time{}
+	health.APIMissing = false
+}
+
+// markProxy records a profile whose SOCKS port answers but whose status API
+// does not. That is a plain SOCKS5 proxy: the data path works, the counters
+// and the allowlist flags are simply not there, so the profile stays online.
+func (m *exitManager) markProxy(id string, latency time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	health, ok := m.health[id]
+	if !ok {
+		health = &profileHealth{}
+		m.health[id] = health
+	}
+	health.State = exitStateOnline
+	health.LatencyMs = float64(latency.Microseconds()) / 1000.0
+	health.Error = ""
+	health.CheckedAt = time.Now().Unix()
+	health.deniedUntil = time.Time{}
+	health.APIMissing = true
 }
 
 func (m *exitManager) markFailure(id string, err error) {
@@ -1167,6 +1197,9 @@ type exitProfileStatus struct {
 	// Authenticated is false when the exit answered with the minimal status:
 	// it wants an API token this profile does not have yet.
 	Authenticated bool `json:"authenticated"`
+	// APIMissing is true for a plain SOCKS5 proxy: the SOCKS port answers, the
+	// status API does not. The profile is online; only the counters are absent.
+	APIMissing bool `json:"apiMissing,omitempty"`
 	// Token is a credential learned during this session, so the app can store
 	// it in the profile and stop asking. Empty when the profile already has one.
 	Token string `json:"token,omitempty"`
@@ -1304,6 +1337,7 @@ func (m *exitManager) statusBase() exitStatus {
 			item.Error = health.Error
 			item.CheckedAt = health.CheckedAt
 			item.Authenticated = health.Authenticated
+			item.APIMissing = health.APIMissing
 			item.Connections = health.Connections
 			item.Refused = health.Refused
 			item.QuotaRefused = health.QuotaRefused
@@ -1526,6 +1560,43 @@ func (m *exitManager) fetchToken(ctx context.Context, profile ExitProfile) (stri
 // right now. When the exit wants a token and the profile has none, the bridge
 // fetches one and retries once; the token is published in the status JSON so
 // the app can store it.
+// probeSOCKS checks the data path of a profile without its API: it opens the
+// SOCKS port and completes the greeting. Every SOCKS5 server answers that,
+// X-Node included, so a failed status call followed by a successful greeting
+// means "a working proxy without a status API", not "an unreachable exit".
+func (m *exitManager) probeSOCKS(ctx context.Context, profile ExitProfile) (time.Duration, error) {
+	dial := m.dialSOCKS
+	if dial == nil {
+		if m.inner == nil {
+			return 0, errors.New("the Yggdrasil stack is not available")
+		}
+		dial = m.inner.dialContext
+	}
+	started := time.Now()
+	conn, err := dial(ctx, "tcp", net.JoinHostPort(profile.Address, strconv.Itoa(profile.SocksPort)))
+	if err != nil {
+		return 0, err
+	}
+	defer conn.Close()
+	if err := socks5Greeting(ctx, conn); err != nil {
+		return 0, err
+	}
+	return time.Since(started), nil
+}
+
+// markUnavailable handles a status call that did not produce an answer. Before
+// calling the exit unreachable it asks the SOCKS port: a plain proxy has no
+// /v1/status, and its card must not claim the exit is down while the traffic
+// flows through it.
+func (m *exitManager) markUnavailable(ctx context.Context, profile ExitProfile, apiErr error) error {
+	if latency, err := m.probeSOCKS(ctx, profile); err == nil {
+		m.markProxy(profile.ID, latency)
+		return nil
+	}
+	m.markFailure(profile.ID, apiErr)
+	return apiErr
+}
+
 func (m *exitManager) checkProfile(ctx context.Context, profile ExitProfile) error {
 	if m.inner == nil && m.dialAPI == nil {
 		return errors.New("the Yggdrasil stack is not available")
@@ -1535,22 +1606,19 @@ func (m *exitManager) checkProfile(ctx context.Context, profile ExitProfile) err
 	for attempt := 0; ; attempt++ {
 		code, raw, err := m.apiCall(ctx, profile, http.MethodGet, "/v1/status", nil, token)
 		if err != nil {
-			m.markFailure(profile.ID, fmt.Errorf("status API: %w", err))
-			return err
+			return m.markUnavailable(ctx, profile, fmt.Errorf("status API: %w", err))
 		}
 		if code != http.StatusOK {
 			var failure struct {
 				Error string `json:"error"`
 			}
 			_ = json.Unmarshal(raw, &failure)
-			err := fmt.Errorf("status API returned status %d (%s)", code, failure.Error)
-			m.markFailure(profile.ID, err)
-			return err
+			return m.markUnavailable(ctx, profile,
+				fmt.Errorf("status API returned status %d (%s)", code, failure.Error))
 		}
 		var payload exitAPIStatus
 		if err := json.Unmarshal(raw, &payload); err != nil {
-			m.markFailure(profile.ID, fmt.Errorf("status API: %w", err))
-			return err
+			return m.markUnavailable(ctx, profile, fmt.Errorf("status API: %w", err))
 		}
 		// A pre-1.3 exit sends no auth fields and always sends the full
 		// status, so a missing mode must not be read as "refused".

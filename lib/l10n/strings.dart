@@ -327,6 +327,7 @@ class L10n {
     'exitCardNoProfileHint': 'Add a node to send public traffic through it',
     'exitCardConnectingHint': 'Bringing the exit node up',
     'exitCardOnlineHint': '%s · %s ms',
+    'exitCardProxyHint': '%s · %s ms · SOCKS5, no status API',
     'exitCardDirect': 'direct',
     'exitCardDegradedHint': 'The selected node is not answering',
     'exitCardFallbackHint':

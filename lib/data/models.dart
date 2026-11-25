@@ -462,6 +462,7 @@ class ExitProfileStatus {
     this.quota,
     this.suspended = false,
     this.authenticated = true,
+    this.apiMissing = false,
     this.token = '',
     this.ipv6Available,
     this.ipv6State = '',
@@ -514,6 +515,10 @@ class ExitProfileStatus {
   /// token this profile does not have (yet). A server from before 1.3 has no
   /// auth at all and always reports the full status.
   final bool authenticated;
+
+  /// True when the SOCKS port answered but the status API did not: a plain
+  /// SOCKS5 proxy. The profile is online, the counters are simply absent.
+  final bool apiMissing;
 
   /// A token the bridge learned during this session. The app saves it in the
   /// profile; empty when the profile already has one.
@@ -596,6 +601,7 @@ class ExitProfileStatus {
             : null,
         suspended: (json['suspended'] as bool?) ?? false,
         authenticated: (json['authenticated'] as bool?) ?? true,
+        apiMissing: (json['apiMissing'] as bool?) ?? false,
         token: ((json['token'] as String?) ?? '').trim(),
         ipv6Available: json['ipv6Available'] is bool
             ? json['ipv6Available'] as bool
@@ -624,6 +630,7 @@ class ExitProfileStatus {
     quota: quota,
     suspended: suspended,
     authenticated: authenticated,
+    apiMissing: apiMissing,
     token: token,
     ipv6Available: ipv6Available,
     ipv6State: ipv6State,
