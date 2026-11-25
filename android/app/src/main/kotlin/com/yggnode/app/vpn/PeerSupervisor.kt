@@ -57,8 +57,28 @@ class PeerSupervisor(
 
     @Volatile
     private var running = false
+
+    @Volatile
     private var thread: Thread? = null
     private var lastRetryAt = 0L
+
+    /** When the loop started, for the fast warm-up pace: a fresh tunnel spends
+     *  the first seconds completing handshakes, and the normal interval would
+     *  leave the list at "0 of 3" until the next tick. */
+    private var startedAt = 0L
+
+    /** The counts of the last tick, so the warm-up stops once every link is up. */
+    @Volatile
+    private var lastUp = 0
+    @Volatile
+    private var lastTotal = 0
+
+    /** Guards the completion of a tick for [requestCheckAndWait]. */
+    private val tickSignal = Object()
+    @Volatile
+    private var tickRequested = 0L
+    @Volatile
+    private var tickCompleted = 0L
 
     /** When the service was last asked to refill an empty pool. */
     private var lastPoolRequestAt = 0L
@@ -206,6 +226,77 @@ class PeerSupervisor(
         synchronized(sleeper) { sleeper.notifyAll() }
     }
 
+    /**
+     * Asks for a check and waits until the loop has actually read the node, so
+     * the caller can hand the fresh state to the UI instead of showing a toast
+     * before anything was re-read. Returns false when the supervisor is not
+     * running or the tick did not finish within [timeoutMs].
+     */
+    fun requestCheckAndWait(timeoutMs: Long): Boolean {
+        if (!running || thread == null) return false
+        val target: Long
+        synchronized(lock) {
+            tickRequested++
+            target = tickRequested
+        }
+        requestCheck()
+        synchronized(tickSignal) {
+            val deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs
+            while (tickCompleted < target) {
+                val left = deadline - android.os.SystemClock.elapsedRealtime()
+                if (left <= 0L) return false
+                try {
+                    tickSignal.wait(left)
+                } catch (_: InterruptedException) {
+                    return false
+                }
+            }
+        }
+        return true
+    }
+
+    /**
+     * Drops and re-adds every active link. Android may freeze the network while
+     * the screen is off, and a TCP link that lost its path stays "up" in the
+     * core: there is no keep-alive and no read deadline, so the node keeps
+     * writing into a dead socket. Recreating the links is the only way back
+     * without tearing the whole tunnel down.
+     */
+    fun restartLinks(reason: String) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        var restarted = 0
+        synchronized(lock) {
+            if (active.isEmpty()) return
+            for (peer in active) {
+                try {
+                    node.removePeer(peer.uri)
+                } catch (t: Throwable) {
+                    onLog("WARN", "could not drop ${peer.uri}: ${t.message}")
+                }
+                try {
+                    node.addPeer(peer.uri)
+                    addedAt[peer.uri] = now
+                    deadSince.remove(peer.uri)
+                    restarted++
+                } catch (t: Throwable) {
+                    onLog("WARN", "could not re-add ${peer.uri}: ${t.message}")
+                    // The link is gone from the node now: try once more so the
+                    // peer is not lost until the service is restarted.
+                    try {
+                        node.addPeer(peer.uri)
+                        restarted++
+                    } catch (_: Throwable) {
+                    }
+                }
+            }
+            if (restarted > 0) {
+                onLog("INFO", "restarted $restarted peer link(s): $reason")
+                onActiveChanged(active.toList())
+            }
+        }
+        if (restarted > 0) publishLiveStats()
+    }
+
     fun start(active: List<PeerEntry>, pool: List<PeerEntry>) {
         val now = android.os.SystemClock.elapsedRealtime()
         synchronized(lock) {
@@ -221,6 +312,13 @@ class PeerSupervisor(
             lastErrors.putAll(prefs.peerErrors())
         }
         running = true
+        startedAt = android.os.SystemClock.elapsedRealtime()
+        lastUp = 0
+        lastTotal = 0
+        synchronized(tickSignal) {
+            tickRequested = 0
+            tickCompleted = 0
+        }
         thread = Thread({ loop() }, "ygg-supervisor").apply {
             isDaemon = true
             start()
@@ -288,12 +386,24 @@ class PeerSupervisor(
         while (running) {
             checkRequested = false
             val settings = settingsProvider()
+            // The requests made before this tick started are what this tick
+            // answers. One that comes in while the tick runs needs the next
+            // tick, otherwise the caller would be told "done" with the state
+            // read before it asked.
+            val tickAtStart = tickRequested
             try {
                 tick(settings)
             } catch (t: Throwable) {
                 onLog("ERROR", "supervisor tick failed: ${t.message}")
+            } finally {
+                synchronized(tickSignal) {
+                    if (tickCompleted < tickAtStart) tickCompleted = tickAtStart
+                    tickSignal.notifyAll()
+                }
             }
             val base = settings.healthCheckSec.coerceIn(5, 120) * 1000L
+            val warmingUp = android.os.SystemClock.elapsedRealtime() - startedAt <
+                FAST_START_MS && (lastTotal == 0 || lastUp < lastTotal)
             val sleep = when {
                 // Only the exit link is kept while the screen is off. There is
                 // nothing to replace and nothing to top up, and the wake-up
@@ -305,6 +415,10 @@ class PeerSupervisor(
                 // a real request instead of waking the CPU on a timer.
                 overrideIntervalMs < 0L -> 0L
                 overrideIntervalMs > 0L -> maxOf(overrideIntervalMs, base)
+                // A fresh tunnel finishes its handshakes one by one. Reading
+                // the list once a second makes the rows turn green as they come
+                // up instead of showing "0 of 3" until the first health tick.
+                warmingUp -> FAST_START_INTERVAL_MS
                 else -> base
             }
             synchronized(sleeper) {
@@ -340,6 +454,8 @@ class PeerSupervisor(
         val total = runtime.size
         val latencies = runtime.filter { it.up && it.latencyMs > 0 }.map { it.latencyMs }
         val avg = if (latencies.isEmpty()) 0.0 else latencies.average()
+        lastUp = up
+        lastTotal = total
         onStats(up, total, avg, peersJson)
 
         synchronized(lock) {
@@ -589,5 +705,10 @@ class PeerSupervisor(
 
         /** How often an empty pool may trigger a background probe. */
         private const val POOL_REQUEST_MS = 10 * 60 * 1000L
+
+        /** The first ticks after a connect run at this pace while some links are
+         *  still handshaking, so the list fills in as the links come up. */
+        private const val FAST_START_MS = 30_000L
+        private const val FAST_START_INTERVAL_MS = 1_000L
     }
 }

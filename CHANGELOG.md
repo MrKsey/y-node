@@ -4,6 +4,14 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.29] — 2026-11-26
+
+### Fixed
+
+- **The tunnel keeps working after a long screen-off.** Android freezes the network while the device sleeps, and a peer link that lost its path stays "up" in the core, which has no keep-alive and no read deadline on a TCP link; the service now recreates the links when the screen comes back after two minutes off, so the exit node and the Yggdrasil network answer again without reconnecting the tunnel by hand.
+- **The Active peers list fills in as the links come up.** The first thirty seconds after a connect are checked every second instead of waiting for the fifteen-second health interval, so the rows stop sitting at "0 of 3" while the handshakes finish.
+- **Re-check now waits for the node.** The button used to show its confirmation before the service read anything; it now waits for the supervisor tick and says when the node did not answer.
+
 ## [1.5.28] — 2026-11-26
 
 ### Fixed

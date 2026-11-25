@@ -173,9 +173,16 @@ class HomeScreen extends StatelessWidget {
                             message: l10n.t('refreshPeersHint'),
                             child: TextButton.icon(
                               onPressed: () async {
-                                await state.refreshPeers();
+                                final ok = await state.refreshPeers();
                                 if (context.mounted) {
-                                  showSnack(context, l10n.t('peersRefreshed'));
+                                  showSnack(
+                                    context,
+                                    l10n.t(
+                                      ok
+                                          ? 'peersRefreshed'
+                                          : 'peersRefreshFailed',
+                                    ),
+                                  );
                                 }
                               },
                               icon: const Icon(Icons.refresh_rounded, size: 18),

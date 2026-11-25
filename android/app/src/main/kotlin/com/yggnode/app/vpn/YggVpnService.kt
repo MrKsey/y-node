@@ -80,6 +80,11 @@ class YggVpnService : VpnService() {
          *  tunnel itself does not depend on them, only their freshness does. */
         private const val SCREEN_OFF_WAKEUP_INTERVAL_SAVING_MS = 900_000L
 
+        /** How long the screen may stay off before the peer links are recreated
+         *  on wake. Shorter sleeps are handled by the wake alarm; a longer one
+         *  can leave a TCP link in a state the core never notices. */
+        private const val SLEEP_RESTART_MS = 120_000L
+
         /** Long enough for one round of Go timers to run, short enough not to
          *  keep the CPU up for a noticeable share of the interval. */
         private const val SCREEN_OFF_WAKE_LOCK_MS = 4_000L
@@ -145,6 +150,14 @@ class YggVpnService : VpnService() {
         /** Re-reads the live peer state right away, for the Refresh button. */
         fun refreshPeers() {
             instance?.supervisor?.requestCheck()
+        }
+
+        /** Re-reads the peer state and waits for the supervisor to finish the
+         *  tick, so the UI can show the fresh list instead of a toast that
+         *  arrives before anything was read. */
+        fun refreshPeersBlocking(timeoutMs: Int): Boolean {
+            val supervisor = instance?.supervisor ?: return false
+            return supervisor.requestCheckAndWait(timeoutMs.toLong())
         }
 
         /**
@@ -436,6 +449,13 @@ class YggVpnService : VpnService() {
      *  ACTION_SCREEN_ON cannot be declared in the manifest. */
     @Volatile
     private var screenPaused = false
+
+    /** When the screen went off, in elapsed-realtime millis. A long sleep can
+     *  leave the peer links in a half-dead TCP state: the core has no keep-alive
+     *  and no read deadline, so the links are recreated when the screen is back
+     *  after [SLEEP_RESTART_MS]. Zero means the screen is on or the service was
+     *  started with the screen already off. */
+    private var screenOffAt = 0L
 
     /** How many nodes route their traffic through this one. Read from the
      *  spanning tree on the stats tick and shown in Diagnostics. */
@@ -1358,6 +1378,7 @@ class YggVpnService : VpnService() {
         )
         val current = prefs.settings()
         if (!interactive) {
+            screenOffAt = SystemClock.elapsedRealtime()
             // The two Power switches own the screen-off state of the tunnel
             // itself; the code below only slows the loops down. Closing the
             // tunnel wins over keeping the exit link: there is nothing to
@@ -1375,6 +1396,8 @@ class YggVpnService : VpnService() {
                 }
             }
         } else {
+            val offAt = screenOffAt
+            screenOffAt = 0L
             if (screenPaused) {
                 resumeFromScreenOff()
                 return
@@ -1382,6 +1405,7 @@ class YggVpnService : VpnService() {
             // Restoring the peers is cheap and idempotent: the supervisor
             // keeps the list that was dropped while the screen was off.
             supervisor?.let { sup -> worker.execute { sup.setExitOnly(false) } }
+            restartLinksAfterSleep(offAt)
         }
         if (interactive) {
             cancelWakeAlarm()
@@ -1408,6 +1432,27 @@ class YggVpnService : VpnService() {
             // loop a tick so the notification shows the numbers from this
             // moment instead of the ones from before the sleep.
             wakeStats()
+        }
+    }
+
+    /**
+     * A long screen-off period can leave the peer links half-dead: Android may
+     * freeze the network while the device sleeps, and the Yggdrasil core has no
+     * keep-alive or read deadline on a TCP link, so it keeps writing into a
+     * socket that carries nothing. Recreating the links is the only way back
+     * without tearing the whole tunnel down.
+     */
+    private fun restartLinksAfterSleep(offAt: Long) {
+        if (offAt <= 0L || !isActive || stopping) return
+        val slept = SystemClock.elapsedRealtime() - offAt
+        if (slept < SLEEP_RESTART_MS) return
+        ConnectionLog.append(
+            "SERVICE",
+            "screen was off for ${slept / 1000}s, restarting the peer links",
+        )
+        worker.execute {
+            supervisor?.restartLinks("screen was off for ${slept / 1000}s")
+            requestExitCheck()
         }
     }
 
@@ -1463,6 +1508,11 @@ class YggVpnService : VpnService() {
         // exactly as they were before the pause.
         VpnState.notifyCurrent()
         if (!isActive) return
+        // Some vendor builds miss ACTION_SCREEN_ON after a deep sleep: the
+        // window coming back is the second chance to replace dead links.
+        val offAt = screenOffAt
+        screenOffAt = 0L
+        restartLinksAfterSleep(offAt)
         // The stats loop may be parked in a long screen-off sleep; a visible
         // window needs its first frame at once, not in a minute.
         updateSupervisorPace()

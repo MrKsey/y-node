@@ -211,8 +211,12 @@ class MainActivity : FlutterActivity() {
             }
 
             "refreshPeers" -> {
-                YggVpnService.refreshPeers()
-                result.success(null)
+                // Wait for the supervisor to finish the tick: the UI shows the
+                // confirmation only after the list was really re-read.
+                worker.execute {
+                    val ok = YggVpnService.refreshPeersBlocking(2500)
+                    mainHandler.post { result.success(ok) }
+                }
             }
 
             "stopIdle" -> {

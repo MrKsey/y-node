@@ -110,6 +110,7 @@ class L10n {
     'latencyRefresh': 'Refreshed every %s s · Settings → Connection',
     'refreshPeers': 'Re-check now',
     'peersRefreshed': 'Peer state re-read from the node',
+    'peersRefreshFailed': 'The node did not answer, try again',
     'refreshPeersHint':
         'Reads the live peer state from the node right away. Otherwise the list '
         'and the latency are refreshed at the check interval.',

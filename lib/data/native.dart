@@ -96,12 +96,21 @@ class Native {
             .timeout(const Duration(seconds: 10), onTimeout: () => null),
       );
 
-  /// Asks the service to re-read the live peer state right away.
-  static Future<void> refreshPeers() => _guard(
-    () => _vpn
-        .invokeMethod('refreshPeers')
-        .timeout(const Duration(seconds: 5), onTimeout: () => null),
-  );
+  /// Asks the service to re-read the live peer state and waits for the check.
+  /// Returns false when the tunnel is not running or did not answer in time.
+  static Future<bool> refreshPeers() async {
+    try {
+      final ok = await _vpn
+          .invokeMethod<bool>('refreshPeers')
+          .timeout(const Duration(seconds: 5), onTimeout: () => false);
+      return ok ?? false;
+    } on PlatformException {
+      return false;
+    } on MissingPluginException {
+      // Tests and desktop have no Android side.
+      return true;
+    }
+  }
 
   /// Leaves the notification panel when the service was started at boot and
   /// only waits there. A running tunnel is not touched.

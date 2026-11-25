@@ -881,13 +881,10 @@ class AppState extends ChangeNotifier {
     screenOffDrops = int.tryParse(stored[_kScreenOffDrops] ?? '') ?? 0;
     batteryExempt = await Native.isBatteryExempt();
     if (snapshot.isConnected) {
+      // The call waits for the supervisor tick, so one poll afterwards is
+      // enough to pick up the fresh peer list.
       await Native.refreshPeers();
-      // Give the supervisor a moment to read the node state, then take the
-      // fresh numbers even if the pushed snapshot has not arrived yet.
-      for (var attempt = 0; attempt < 2; attempt++) {
-        await Future<void>.delayed(const Duration(milliseconds: 300));
-        await _pollState();
-      }
+      await _pollState();
     }
     // The window is on screen again: a DNS check that was skipped while it was
     // hidden can run now.
@@ -1231,11 +1228,13 @@ class AppState extends ChangeNotifier {
     await Native.applyPeers(peers, pool);
   }
 
-  /// Asks the service to re-read the live peer state immediately instead of
-  /// waiting for the next health-check tick.
-  Future<void> refreshPeers() async {
-    await Native.refreshPeers();
+  /// Asks the service to re-read the live peer state immediately and waits for
+  /// the check to finish, so the list is fresh when the caller shows its
+  /// confirmation. Returns false when the tunnel is not running.
+  Future<bool> refreshPeers() async {
+    final ok = await Native.refreshPeers();
     await _pollState();
+    return ok;
   }
 
   // ------------------------------------------------------------------
