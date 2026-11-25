@@ -1077,7 +1077,7 @@ class DnsMode {
 class AppSettings {
   const AppSettings({
     this.peerCount = 3,
-    this.autoReplace = true,
+    this.autoReplace = false,
     this.deadPeerTimeoutSec = 45,
     this.healthCheckSec = 15,
     this.dnsMode = DnsMode.yggdrasil,
@@ -1095,6 +1095,7 @@ class AppSettings {
     this.exitFallbackDirect = true,
     this.exitLocalDns = true,
     this.exitDnsEnabled = false,
+    this.exitDnsTouched = false,
     this.exitUdp = true,
     this.exitPeerHidden = false,
     this.exitDnsHidden = false,
@@ -1131,6 +1132,12 @@ class AppSettings {
   /// a resolver: the switch can be turned on before the exit publishes one,
   /// and the resolver is then added when the status API reports it.
   final bool exitDnsEnabled;
+
+  /// True once the user has flipped the switch by hand. Until then the switch
+  /// follows the server: an exit that publishes a resolver turns it on, so a
+  /// node installed with the Alfis DNS server is used without a detour through
+  /// the settings.
+  final bool exitDnsTouched;
 
   /// Carry DNS and QUIC over the exit as well. Turning it off drops public UDP
   /// instead of letting it leave the phone around the exit.
@@ -1223,7 +1230,7 @@ class AppSettings {
 
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
     peerCount: (json['peerCount'] as num?)?.toInt() ?? 3,
-    autoReplace: (json['autoReplace'] as bool?) ?? true,
+    autoReplace: (json['autoReplace'] as bool?) ?? false,
     deadPeerTimeoutSec: (json['deadPeerTimeoutSec'] as num?)?.toInt() ?? 45,
     healthCheckSec: (json['healthCheckSec'] as num?)?.toInt() ?? 15,
     dnsMode: (json['dnsMode'] as String?) ?? DnsMode.yggdrasil,
@@ -1247,6 +1254,7 @@ class AppSettings {
     exitFallbackDirect: (json['exitFallbackDirect'] as bool?) ?? true,
     exitLocalDns: (json['exitLocalDns'] as bool?) ?? true,
     exitDnsEnabled: (json['exitDnsEnabled'] as bool?) ?? false,
+    exitDnsTouched: (json['exitDnsTouched'] as bool?) ?? false,
     exitUdp: (json['exitUdp'] as bool?) ?? true,
     exitPeerHidden: (json['exitPeerHidden'] as bool?) ?? false,
     exitDnsHidden: (json['exitDnsHidden'] as bool?) ?? false,
@@ -1282,6 +1290,7 @@ class AppSettings {
     'exitFallbackDirect': exitFallbackDirect,
     'exitLocalDns': exitLocalDns,
     'exitDnsEnabled': exitDnsEnabled,
+    'exitDnsTouched': exitDnsTouched,
     'exitUdp': exitUdp,
     'exitPeerHidden': exitPeerHidden,
     'exitDnsHidden': exitDnsHidden,
@@ -1315,6 +1324,7 @@ class AppSettings {
     bool? exitFallbackDirect,
     bool? exitLocalDns,
     bool? exitDnsEnabled,
+    bool? exitDnsTouched,
     bool? exitUdp,
     bool? exitPeerHidden,
     bool? exitDnsHidden,
@@ -1346,6 +1356,7 @@ class AppSettings {
     exitFallbackDirect: exitFallbackDirect ?? this.exitFallbackDirect,
     exitLocalDns: exitLocalDns ?? this.exitLocalDns,
     exitDnsEnabled: exitDnsEnabled ?? this.exitDnsEnabled,
+    exitDnsTouched: exitDnsTouched ?? this.exitDnsTouched,
     exitUdp: exitUdp ?? this.exitUdp,
     exitPeerHidden: exitPeerHidden ?? this.exitPeerHidden,
     exitDnsHidden: exitDnsHidden ?? this.exitDnsHidden,

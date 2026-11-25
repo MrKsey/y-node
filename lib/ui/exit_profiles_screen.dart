@@ -1,4 +1,5 @@
-﻿import 'dart:io';
+﻿import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -31,269 +32,264 @@ class _ExitProfilesScreenState extends State<ExitProfilesScreen> {
     final settings = state.settings;
     final status = state.exitStatus;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(l10n.t('exitProfilesTitle')),
-        actions: [
-          IconButton(
-            tooltip: l10n.t('exitScanQr'),
-            onPressed: _scanning ? null : () => _scan(state),
-            icon: const Icon(Icons.qr_code_scanner_rounded),
-          ),
-          IconButton(
-            tooltip: l10n.t('exitImportLink'),
-            onPressed: _scanning ? null : () => _importLink(state),
-            icon: const Icon(Icons.link_rounded),
-          ),
-          IconButton(
-            tooltip: l10n.t('exitAddManually'),
-            onPressed: () => _add(state),
-            icon: const Icon(Icons.add_rounded),
-          ),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-        children: [
-          if (state.exitChangesPending) ...[
-            Card(
-              color: Theme.of(context).colorScheme.secondaryContainer,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
-                child: Row(
-                  children: [
-                    const Icon(Icons.sync_problem_rounded),
-                    const SizedBox(width: 12),
-                    Expanded(child: Text(l10n.t('exitReconnectHint'))),
-                    const SizedBox(width: 8),
-                    FilledButton(
-                      onPressed: _applyChanges,
-                      child: Text(l10n.t('reconnectNow')),
-                    ),
-                  ],
-                ),
-              ),
+    return PopScope(
+      // There is no Reconnect button: the tunnel is rebuilt on the way out
+      // when a change really needs one, and only then.
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) return;
+        unawaited(state.applyPendingExitChanges());
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(l10n.t('exitProfilesTitle')),
+          actions: [
+            IconButton(
+              tooltip: l10n.t('exitScanQr'),
+              onPressed: _scanning ? null : () => _scan(state),
+              icon: const Icon(Icons.qr_code_scanner_rounded),
             ),
-            const SizedBox(height: 8),
+            IconButton(
+              tooltip: l10n.t('exitImportLink'),
+              onPressed: _scanning ? null : () => _importLink(state),
+              icon: const Icon(Icons.link_rounded),
+            ),
+            IconButton(
+              tooltip: l10n.t('exitAddManually'),
+              onPressed: () => _add(state),
+              icon: const Icon(Icons.add_rounded),
+            ),
           ],
-          SectionCard(
-            title: l10n.t('exitNode'),
-            children: [
-              SwitchListTile(
-                value: settings.exitEnabled,
-                onChanged: settings.exitProfiles.isEmpty
-                    ? null
-                    : (value) => state.setExitEnabled(value),
-                title: Text(l10n.t('exitNode')),
-                subtitle: Text(
-                  ExitStatusUi.label(
-                    ExitStatusUi.stateOf(
-                      enabled: settings.exitEnabled,
-                      profileCount: settings.exitProfiles.length,
-                      snapshot: state.snapshot,
-                      status: status,
-                      fallbackDirect: settings.exitFallbackDirect,
+        ),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+          children: [
+            SectionCard(
+              title: l10n.t('exitNode'),
+              children: [
+                SwitchListTile(
+                  value: settings.exitEnabled,
+                  onChanged: settings.exitProfiles.isEmpty
+                      ? null
+                      : (value) => state.setExitEnabled(value),
+                  title: Text(l10n.t('exitNode')),
+                  subtitle: Text(
+                    ExitStatusUi.label(
+                      ExitStatusUi.stateOf(
+                        enabled: settings.exitEnabled,
+                        profileCount: settings.exitProfiles.length,
+                        snapshot: state.snapshot,
+                        status: status,
+                        fallbackDirect: settings.exitFallbackDirect,
+                      ),
+                      l10n,
                     ),
-                    l10n,
                   ),
+                  secondary: const Icon(Icons.vpn_lock_rounded),
                 ),
-                secondary: const Icon(Icons.vpn_lock_rounded),
-              ),
-            ],
-          ),
-          SectionCard(
-            title: l10n.t('exitProfilesTitle'),
-            subtitle: l10n.t('exitProfilesHint'),
-            children: [
-              if (settings.exitProfiles.isEmpty)
-                EmptyHint(
-                  icon: Icons.dns_outlined,
-                  title: l10n.t('exitStateNoProfile'),
-                  body: l10n.t('exitCardNoProfileHint'),
-                  action: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    alignment: WrapAlignment.center,
+              ],
+            ),
+            SectionCard(
+              title: l10n.t('exitProfilesTitle'),
+              subtitle: l10n.t('exitProfilesHint'),
+              children: [
+                if (settings.exitProfiles.isEmpty)
+                  EmptyHint(
+                    icon: Icons.dns_outlined,
+                    title: l10n.t('exitStateNoProfile'),
+                    body: l10n.t('exitCardNoProfileHint'),
+                    action: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      alignment: WrapAlignment.center,
+                      children: [
+                        FilledButton.tonalIcon(
+                          onPressed: () => _scan(state),
+                          icon: const Icon(Icons.qr_code_scanner_rounded),
+                          label: Text(l10n.t('exitScanQr')),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: () => _importLink(state),
+                          icon: const Icon(Icons.link_rounded),
+                          label: Text(l10n.t('exitImportLink')),
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  ReorderableListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    buildDefaultDragHandles: false,
+                    itemCount: settings.exitProfiles.length,
+                    onReorderItem: state.reorderExitProfiles,
+                    itemBuilder: (context, index) {
+                      final profile = settings.exitProfiles[index];
+                      final health = _healthOf(status, profile.id);
+                      return _ExitRow(
+                        key: ValueKey(profile.id),
+                        index: index,
+                        profile: profile,
+                        active:
+                            profile.id ==
+                            (settings.exitActiveProfile?.id ?? ''),
+                        health: health,
+                        registering: _registering == profile.id,
+                        onSetActive: () => state.setExitActive(profile.id),
+                        onEdit: () => _edit(state, profile),
+                        onRegister: () => _register(state, profile),
+                        onRemove: () => _remove(state, profile),
+                      );
+                    },
+                  ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+                  child: Row(
                     children: [
-                      FilledButton.tonalIcon(
+                      TextButton.icon(
                         onPressed: () => _scan(state),
-                        icon: const Icon(Icons.qr_code_scanner_rounded),
+                        icon: const Icon(
+                          Icons.qr_code_scanner_rounded,
+                          size: 18,
+                        ),
                         label: Text(l10n.t('exitScanQr')),
                       ),
-                      OutlinedButton.icon(
+                      IconButton(
+                        tooltip: l10n.t('exitImportLink'),
+                        visualDensity: VisualDensity.compact,
                         onPressed: () => _importLink(state),
-                        icon: const Icon(Icons.link_rounded),
-                        label: Text(l10n.t('exitImportLink')),
+                        icon: const Icon(Icons.link_rounded, size: 18),
+                      ),
+                      const Spacer(),
+                      TextButton.icon(
+                        onPressed:
+                            state.checkingExit || !state.snapshot.isConnected
+                            ? null
+                            : () => _check(state),
+                        icon: state.checkingExit
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.refresh_rounded, size: 18),
+                        label: Text(
+                          state.checkingExit
+                              ? l10n.t('exitChecking')
+                              : l10n.t('exitCheckNow'),
+                        ),
                       ),
                     ],
                   ),
-                )
-              else
-                ReorderableListView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  buildDefaultDragHandles: false,
-                  itemCount: settings.exitProfiles.length,
-                  onReorderItem: state.reorderExitProfiles,
-                  itemBuilder: (context, index) {
-                    final profile = settings.exitProfiles[index];
-                    final health = _healthOf(status, profile.id);
-                    return _ExitRow(
-                      key: ValueKey(profile.id),
-                      index: index,
-                      profile: profile,
-                      active:
-                          profile.id == (settings.exitActiveProfile?.id ?? ''),
-                      health: health,
-                      registering: _registering == profile.id,
-                      onSetActive: () => state.setExitActive(profile.id),
-                      onEdit: () => _edit(state, profile),
-                      onRegister: () => _register(state, profile),
-                      onRemove: () => _remove(state, profile),
-                    );
-                  },
                 ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
-                child: Row(
-                  children: [
-                    TextButton.icon(
-                      onPressed: () => _scan(state),
-                      icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
-                      label: Text(l10n.t('exitScanQr')),
-                    ),
-                    IconButton(
-                      tooltip: l10n.t('exitImportLink'),
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () => _importLink(state),
-                      icon: const Icon(Icons.link_rounded, size: 18),
-                    ),
-                    const Spacer(),
-                    TextButton.icon(
-                      onPressed:
-                          state.checkingExit || !state.snapshot.isConnected
-                          ? null
-                          : () => _check(state),
-                      icon: state.checkingExit
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.refresh_rounded, size: 18),
-                      label: Text(
-                        state.checkingExit
-                            ? l10n.t('exitChecking')
-                            : l10n.t('exitCheckNow'),
-                      ),
-                    ),
-                  ],
+              ],
+            ),
+            SectionCard(
+              title: l10n.t('settingsTitle'),
+              children: [
+                SwitchListTile(
+                  value: settings.exitFallbackDirect,
+                  onChanged: state.setExitFallbackDirect,
+                  title: Text(l10n.t('exitFallbackDirect')),
+                  subtitle: Text(l10n.t('exitFallbackHint')),
+                  secondary: const Icon(Icons.alt_route_rounded),
                 ),
-              ),
-            ],
-          ),
-          SectionCard(
-            title: l10n.t('settingsTitle'),
-            children: [
-              SwitchListTile(
-                value: settings.exitFallbackDirect,
-                onChanged: state.setExitFallbackDirect,
-                title: Text(l10n.t('exitFallbackDirect')),
-                subtitle: Text(l10n.t('exitFallbackHint')),
-                secondary: const Icon(Icons.alt_route_rounded),
-              ),
-              SwitchListTile(
-                value: settings.exitNodeNameEnabled,
-                onChanged: (value) => state.setExitNodeName(
-                  enabled: value,
-                  name: settings.exitNodeName,
+                SwitchListTile(
+                  value: settings.exitNodeNameEnabled,
+                  onChanged: (value) => state.setExitNodeName(
+                    enabled: value,
+                    name: settings.exitNodeName,
+                  ),
+                  title: Text(l10n.t('exitMyNameTitle')),
+                  subtitle: Text(
+                    settings.exitNodeNameEnabled &&
+                            settings.exitNodeName.trim().isNotEmpty
+                        ? l10n.tf('exitMyNameOn', [
+                            settings.exitNodeName.trim(),
+                          ])
+                        : settings.exitNodeNameEnabled
+                        ? l10n.t('exitMyNameDevice')
+                        : l10n.t('exitMyNameOff'),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  secondary: const Icon(Icons.badge_outlined),
                 ),
-                title: Text(l10n.t('exitMyNameTitle')),
-                subtitle: Text(
-                  settings.exitNodeNameEnabled &&
-                          settings.exitNodeName.trim().isNotEmpty
-                      ? l10n.tf('exitMyNameOn', [settings.exitNodeName.trim()])
-                      : settings.exitNodeNameEnabled
-                      ? l10n.t('exitMyNameDevice')
-                      : l10n.t('exitMyNameOff'),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+                ListTile(
+                  leading: const Icon(Icons.drive_file_rename_outline_rounded),
+                  title: Text(l10n.t('exitMyNameField')),
+                  subtitle: Text(
+                    settings.exitNodeName.trim().isEmpty
+                        ? l10n.t('exitMyNameDevice')
+                        : settings.exitNodeName.trim(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: const Icon(Icons.edit_rounded, size: 18),
+                  onTap: () => _editExitNodeName(state),
                 ),
-                secondary: const Icon(Icons.badge_outlined),
-              ),
-              ListTile(
-                leading: const Icon(Icons.drive_file_rename_outline_rounded),
-                title: Text(l10n.t('exitMyNameField')),
-                subtitle: Text(
-                  settings.exitNodeName.trim().isEmpty
-                      ? l10n.t('exitMyNameDevice')
-                      : settings.exitNodeName.trim(),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                SwitchListTile(
+                  value: settings.exitLocalDns,
+                  onChanged: state.setExitLocalDns,
+                  title: Text(l10n.t('exitLocalDns')),
+                  subtitle: Text(l10n.t('exitLocalDnsHint')),
+                  secondary: const Icon(Icons.lan_outlined),
                 ),
-                trailing: const Icon(Icons.edit_rounded, size: 18),
-                onTap: () => _editExitNodeName(state),
-              ),
-              SwitchListTile(
-                value: settings.exitLocalDns,
-                onChanged: state.setExitLocalDns,
-                title: Text(l10n.t('exitLocalDns')),
-                subtitle: Text(l10n.t('exitLocalDnsHint')),
-                secondary: const Icon(Icons.lan_outlined),
-              ),
-              // The resolver of the exit node is a Yggdrasil DNS server the
-              // server publishes for its clients. The switch puts it into the
-              // DNS list; the list then locks the entry instead of offering a
-              // remove button, because this switch owns it. The switch can be
-              // turned on before the exit reports a resolver: the entry is
-              // added as soon as the status API carries one.
-              SwitchListTile(
-                value: settings.exitDnsEnabled,
-                onChanged: state.setExitDns,
-                title: Text(l10n.t('exitDnsNode')),
-                subtitle: Text(
-                  state.exitDnsProfile == null
-                      ? l10n.t('exitDnsNodeUnavailable')
-                      : l10n.t('exitDnsNodeHint'),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+                // The resolver of the exit node is a Yggdrasil DNS server the
+                // server publishes for its clients. The switch puts it into the
+                // DNS list; the list then locks the entry instead of offering a
+                // remove button, because this switch owns it. The switch can be
+                // turned on before the exit reports a resolver: the entry is
+                // added as soon as the status API carries one.
+                SwitchListTile(
+                  value: settings.exitDnsEnabled,
+                  onChanged: state.setExitDns,
+                  title: Text(l10n.t('exitDnsNode')),
+                  subtitle: Text(
+                    state.exitDnsProfile == null
+                        ? l10n.t('exitDnsNodeUnavailable')
+                        : l10n.t('exitDnsNodeHint'),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  secondary: const Icon(Icons.dns_rounded),
                 ),
-                secondary: const Icon(Icons.dns_rounded),
-              ),
-              SwitchListTile(
-                value: settings.exitUdp,
-                onChanged: (value) => _setUdp(state, value),
-                title: Text(l10n.t('exitUdp')),
-                subtitle: Text(l10n.t('exitUdpHint')),
-                secondary: const Icon(Icons.swap_vert_rounded),
-              ),
-              ListTile(
-                leading: const Icon(Icons.dns_outlined),
-                title: Text(l10n.t('exitDnsTitle')),
-                subtitle: Text(
-                  settings.exitDnsServers.join(', '),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                SwitchListTile(
+                  value: settings.exitUdp,
+                  onChanged: (value) => _setUdp(state, value),
+                  title: Text(l10n.t('exitUdp')),
+                  subtitle: Text(l10n.t('exitUdpHint')),
+                  secondary: const Icon(Icons.swap_vert_rounded),
                 ),
-                trailing: const Icon(Icons.edit_rounded, size: 18),
-                onTap: () => _editDns(state, exitDns: true),
-              ),
-              ListTile(
-                leading: const Icon(Icons.router_outlined),
-                title: Text(l10n.t('exitLocalDnsTitle')),
-                subtitle: Text(
-                  settings.exitLocalDnsServers.isEmpty
-                      ? l10n.t('exitDnsSystem')
-                      : settings.exitLocalDnsServers.join(', '),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                ListTile(
+                  leading: const Icon(Icons.dns_outlined),
+                  title: Text(l10n.t('exitDnsTitle')),
+                  subtitle: Text(
+                    settings.exitDnsServers.join(', '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: const Icon(Icons.edit_rounded, size: 18),
+                  onTap: () => _editDns(state, exitDns: true),
                 ),
-                trailing: const Icon(Icons.edit_rounded, size: 18),
-                onTap: () => _editDns(state, exitDns: false),
-              ),
-            ],
-          ),
-        ],
+                ListTile(
+                  leading: const Icon(Icons.router_outlined),
+                  title: Text(l10n.t('exitLocalDnsTitle')),
+                  subtitle: Text(
+                    settings.exitLocalDnsServers.isEmpty
+                        ? l10n.t('exitDnsSystem')
+                        : settings.exitLocalDnsServers.join(', '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: const Icon(Icons.edit_rounded, size: 18),
+                  onTap: () => _editDns(state, exitDns: false),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -303,17 +299,6 @@ class _ExitProfilesScreenState extends State<ExitProfilesScreen> {
       if (profile.id == id) return profile;
     }
     return null;
-  }
-
-  Future<void> _applyChanges() async {
-    final state = context.read<AppState>();
-    final l10n = state.l10n;
-    final ok = await state.reconnect();
-    if (!mounted) return;
-    showSnack(
-      context,
-      ok ? l10n.t('reconnectDone') : l10n.t('reconnectFailed'),
-    );
   }
 
   /// The relay is opened when the tunnel starts, so the switch restarts it

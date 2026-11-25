@@ -4,6 +4,19 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.26] — 2026-11-25
+
+### Changed
+
+- **The Reconnect button on the exit screen is gone.** Changes that need a rebuilt tunnel are applied when the screen closes, so the list of exits and its switches no longer end with a button that could be forgotten; a change that needs nothing still costs nothing.
+- **"DNS exit node" turns itself on for an exit that publishes a resolver.** A server installed with the Alfis DNS answers only after its zone has synced, so the QR code used to add an exit without DNS; the switch now follows the resolver when the status reports it and adds it to the DNS list at once. A switch flipped by hand keeps the stored choice.
+
+### Fixed
+
+- **"Replace dropped peers" is off by default.** A fresh installation no longer swaps a lost peer for a stranger from the pool unless the switch is turned on.
+- **Onboarding names the other two products** instead of a generic energy-saving line: X-Node, the exit node, and Y-Node Desktop.
+- **The connect button says why it is disabled.** With no peers in the list the hero button stays dimmed and a line under it asks to add a peer first, instead of a button that looks ready and does nothing.
+
 ## [1.5.25] — 2026-11-24
 
 ### Added

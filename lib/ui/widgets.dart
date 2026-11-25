@@ -378,6 +378,7 @@ class PowerButton extends StatelessWidget {
     required this.busy,
     required this.onPressed,
     required this.tooltip,
+    this.enabled = true,
   });
 
   final bool connected;
@@ -385,52 +386,60 @@ class PowerButton extends StatelessWidget {
   final VoidCallback onPressed;
   final String tooltip;
 
+  /// False when the action cannot run yet, for example when there is no peer
+  /// to connect to: the button is dimmed and ignores taps.
+  final bool enabled;
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final color = connected ? AppColors.copper : scheme.primary;
     return Semantics(
       button: true,
+      enabled: enabled && !busy,
       label: tooltip,
       child: InkWell(
-        onTap: busy ? null : onPressed,
+        onTap: !enabled || busy ? null : onPressed,
         customBorder: const CircleBorder(),
-        child: Container(
-          width: 106,
-          height: 106,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: connected
-                  ? [AppColors.copperLight, AppColors.copperDeep]
-                  : [AppColors.tealSoft, AppColors.tealDeep],
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: color.withValues(alpha: 0.35),
-                blurRadius: 28,
-                spreadRadius: 2,
-                offset: const Offset(0, 10),
+        child: Opacity(
+          opacity: enabled ? 1 : 0.45,
+          child: Container(
+            width: 106,
+            height: 106,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: connected
+                    ? [AppColors.copperLight, AppColors.copperDeep]
+                    : [AppColors.tealSoft, AppColors.tealDeep],
               ),
-            ],
-          ),
-          child: Center(
-            child: busy
-                ? const SizedBox(
-                    width: 34,
-                    height: 34,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 3,
+              boxShadow: [
+                BoxShadow(
+                  color: color.withValues(alpha: 0.35),
+                  blurRadius: 28,
+                  spreadRadius: 2,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Center(
+              child: busy
+                  ? const SizedBox(
+                      width: 34,
+                      height: 34,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 3,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Icon(
+                      connected ? Icons.lock_open_rounded : Icons.lock_rounded,
+                      size: 42,
                       color: Colors.white,
                     ),
-                  )
-                : Icon(
-                    connected ? Icons.lock_open_rounded : Icons.lock_rounded,
-                    size: 42,
-                    color: Colors.white,
-                  ),
+            ),
           ),
         ),
       ),

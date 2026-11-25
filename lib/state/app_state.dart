@@ -1385,6 +1385,14 @@ class AppState extends ChangeNotifier {
       appliedExitSignature.isNotEmpty &&
       appliedExitSignature != _exitSignatureOf(settings);
 
+  /// Rebuilds the tunnel when the exit settings changed while the user was on
+  /// the exit screen. The screen calls this as it closes: there is no separate
+  /// Reconnect button, the change is applied on the way out.
+  Future<void> applyPendingExitChanges() async {
+    if (!exitChangesPending) return;
+    await reconnect();
+  }
+
   static String _exitSignatureOf(AppSettings value) => [
     value.exitEnabled,
     value.exitActiveId,
@@ -1524,6 +1532,9 @@ class AppState extends ChangeNotifier {
     await saveSettings(
       settings.copyWith(
         exitDnsEnabled: value,
+        // The switch follows the server until the user makes the choice: a
+        // later profile that publishes a resolver no longer turns it on.
+        exitDnsTouched: true,
         dnsServers: servers,
         dnsMode: modeChanged ? DnsMode.yggdrasil : settings.dnsMode,
       ),
@@ -1639,6 +1650,17 @@ class AppState extends ChangeNotifier {
     if (!profiles.any((profile) => profile.id == activeId)) {
       activeId = profiles.isEmpty ? '' : profiles.first.id;
     }
+    // An exit node that publishes a resolver turns the "DNS exit node" switch
+    // on by itself, so a server installed with the Alfis DNS is used without
+    // a trip to the settings. The switch follows the server only until the
+    // user flips it by hand: from then on the stored choice stands.
+    final learnedDns =
+        !settings.exitDnsTouched &&
+        !settings.exitDnsHidden &&
+        profiles.any((profile) => profile.hasDns);
+    final base = learnedDns && !settings.exitDnsEnabled
+        ? settings.copyWith(exitDnsEnabled: true)
+        : settings;
     // A resolver that belonged to a profile which is gone (or no longer
     // publishes one) leaves the list with it. When the switch was on, the
     // resolver of the profile that is active now takes its place.
@@ -1649,13 +1671,13 @@ class AppState extends ChangeNotifier {
     // profile that learns its resolver from the status API is added here. A
     // resolver the user removed while the exit was off stays out until the
     // exit is switched on.
-    final dismissed = settings.exitDnsHidden && !settings.exitEnabled;
+    final dismissed = base.exitDnsHidden && !base.exitEnabled;
     final hadExitDns =
         !dismissed &&
-        (settings.exitDnsEnabled ||
-            (previous.isNotEmpty && settings.dnsServers.contains(previous)));
+        (base.exitDnsEnabled ||
+            (previous.isNotEmpty && base.dnsServers.contains(previous)));
     final servers = [
-      for (final server in settings.dnsServers)
+      for (final server in base.dnsServers)
         if (!before.contains(server) || after.contains(server)) server,
     ];
     var ordered = servers;
@@ -1673,13 +1695,13 @@ class AppState extends ChangeNotifier {
       }
     }
     await saveSettings(
-      settings.copyWith(
+      base.copyWith(
         exitProfiles: profiles,
         exitActiveId: activeId,
         exitEnabled: exitEnabledAfter(
-          settings.exitProfiles,
+          base.exitProfiles,
           profiles,
-          settings.exitEnabled,
+          base.exitEnabled,
         ),
         dnsServers: ordered,
       ),

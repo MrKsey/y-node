@@ -339,6 +339,50 @@ void main() {
       await state.setExitDns(true);
       expect(state.settings.dnsMode, DnsMode.yggdrasil);
     });
+
+    test('a resolver learned from the status turns the switch on', () async {
+      // A fresh install: the profile came from the QR code, which carries no
+      // resolver, and the switch was never touched.
+      const plain = ExitProfile(
+        id: '202::3:1080',
+        name: 'Plain',
+        address: '202::3',
+      );
+      final state = stateWith(profiles: const [plain], activeId: '202::3:1080');
+      expect(state.settings.exitDnsEnabled, isFalse);
+
+      await state.saveExitProfiles(const [
+        ExitProfile(
+          id: '202::3:1080',
+          name: 'Plain',
+          address: '202::3',
+          dnsAddress: '202::3',
+        ),
+      ]);
+      expect(state.settings.exitDnsEnabled, isTrue);
+      expect(state.settings.dnsServers, contains('202::3'));
+      expect(state.exitDnsInUse, isTrue);
+    });
+
+    test('a switch turned off by hand stays off', () async {
+      const plain = ExitProfile(
+        id: '202::3:1080',
+        name: 'Plain',
+        address: '202::3',
+      );
+      final state = stateWith(profiles: const [plain], activeId: '202::3:1080');
+      await state.setExitDns(false);
+      await state.saveExitProfiles(const [
+        ExitProfile(
+          id: '202::3:1080',
+          name: 'Plain',
+          address: '202::3',
+          dnsAddress: '202::3',
+        ),
+      ]);
+      expect(state.settings.exitDnsEnabled, isFalse);
+      expect(state.settings.dnsServers, isNot(contains('202::3')));
+    });
   });
 
   group('only the selected exit node is used', () {

@@ -68,6 +68,7 @@ class L10n {
     'statusReconnecting': 'Reconnecting…',
     'statusDisconnecting': 'Disconnecting…',
     'connect': 'Connect',
+    'connectNoPeersHint': 'Add a peer first: there is nothing to connect to.',
     'disconnect': 'Disconnect',
     'yourAddress': 'Your address',
     'yourKey': 'Public key',
@@ -439,7 +440,6 @@ class L10n {
         'Connect the tunnel first: registration goes through Yggdrasil.',
     'exitInvitePending':
         'Invite saved. It is redeemed as soon as the tunnel connects.',
-    'exitReconnectHint': 'Changes take effect after the tunnel reconnects',
     'exitFallbackDirect': 'Use the direct connection if the exit is down',
     'exitFallbackHint':
         'When the selected node does not answer, public traffic leaves the '
@@ -683,6 +683,12 @@ class L10n {
     'onboardingWelcomeBody':
         'Y-Node connects your phone to Yggdrasil, a decentralised IPv6 network '
         'running on top of the ordinary internet. Traffic is encrypted end to end.',
+    'onboardingXNode':
+        'X-Node turns a VPS into the exit node: it keeps the public peers up '
+        'and forwards this phone\'s traffic to the regular internet.',
+    'onboardingDesktop':
+        'Y-Node Desktop is the same client for Windows, macOS and Linux: it '
+        'sends traffic through a local proxy and needs no administrator rights.',
     'onboardingIdentityTitle': 'Your address',
     'onboardingIdentityBody':
         'The address is derived from your key and never changes. It is not tied '

@@ -210,7 +210,8 @@ class _WelcomePage extends StatelessWidget {
             for (final entry in [
               (Icons.lock_outline_rounded, l10n.t('splitDescription')),
               (Icons.dns_outlined, l10n.t('dnsHint')),
-              (Icons.battery_charging_full_rounded, l10n.t('energySavingHint')),
+              (Icons.router_rounded, l10n.t('onboardingXNode')),
+              (Icons.desktop_windows_rounded, l10n.t('onboardingDesktop')),
             ])
               ListTile(
                 leading: Icon(entry.$1, size: 20),

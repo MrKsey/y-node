@@ -90,6 +90,7 @@ class HomeScreen extends StatelessWidget {
               peersTotal: publicPeers.total,
               connectedAt: snapshot.connectedAt,
               onToggle: state.toggle,
+              canConnect: connected || state.peers.isNotEmpty,
               exitName: exitName,
               exitCountry: exitPeer?.country ?? '',
               exitOn: state.settings.exitActive,
@@ -505,6 +506,7 @@ class _Hero extends StatefulWidget {
     required this.peersTotal,
     required this.connectedAt,
     required this.onToggle,
+    required this.canConnect,
     required this.exitName,
     required this.exitCountry,
     required this.exitOn,
@@ -525,6 +527,10 @@ class _Hero extends StatefulWidget {
   final int peersTotal;
   final int connectedAt;
   final VoidCallback onToggle;
+
+  /// False while there is not a single peer: the tunnel has nothing to dial,
+  /// so the button is drawn dimmed and the line under it says why.
+  final bool canConnect;
   final String? errorText;
 
   /// The name of the exit node, empty when no profile is selected.
@@ -697,10 +703,13 @@ class _HeroState extends State<_Hero> with SingleTickerProviderStateMixin {
                       PowerButton(
                         connected: widget.connected,
                         busy: widget.busy,
+                        enabled: widget.canConnect,
                         onPressed: widget.onToggle,
                         tooltip: widget.connected
                             ? l10n.t('disconnect')
-                            : l10n.t('connect'),
+                            : widget.canConnect
+                            ? l10n.t('connect')
+                            : l10n.t('connectNoPeersHint'),
                       ),
                     ],
                   ),
@@ -788,6 +797,16 @@ class _HeroState extends State<_Hero> with SingleTickerProviderStateMixin {
                           ),
                           if (widget.connected)
                             _Uptime(connectedAt: widget.connectedAt),
+                          if (!widget.connected && !widget.canConnect)
+                            Text(
+                              l10n.t('connectNoPeersHint'),
+                              textAlign: TextAlign.center,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: AppColors.copper,
+                              ),
+                            ),
                         ],
                       ),
               ),
