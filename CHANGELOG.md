@@ -4,6 +4,12 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.28] — 2026-11-26
+
+### Fixed
+
+- **The first-run peer search counts the answers it gets.** The onboarding screen read the result list, which is filled only when the round ends, so it said "Live nodes found: 0" for the whole search even after nodes had answered; the counter now follows the running round and appears with the first answer, and a round that has not reached the Yggdrasil handshake yet no longer claims a zero.
+
 ## [1.5.27] — 2026-11-25
 
 ### Fixed

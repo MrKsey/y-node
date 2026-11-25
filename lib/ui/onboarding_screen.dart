@@ -329,14 +329,22 @@ class _PeersPage extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(_phase, style: theme.textTheme.bodySmall),
-            const SizedBox(height: 4),
-            Text(
-              l10n.tf('onboardingFound', [state.probeAlive.length]),
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: AppColors.online,
-                fontWeight: FontWeight.w600,
+            // The live count of the running round, not the list that is filled
+            // when it ends: the old label read the final list, so it said "0"
+            // for the whole search even after peers had answered. The line
+            // appears with the first answer, like on the Peers and Tunnel
+            // screens, so a round that has not reached the protocol yet does
+            // not look like a failed search.
+            if ((state.probeProgress?.alive ?? 0) > 0) ...[
+              const SizedBox(height: 4),
+              Text(
+                l10n.tf('onboardingFound', [state.probeProgress!.alive]),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: AppColors.online,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            ),
+            ],
           ] else if (hasPeers)
             Card(
               child: Column(
