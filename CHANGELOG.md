@@ -4,6 +4,14 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.30] — 2026-11-26
+
+### Fixed
+
+- **The public peers come back after a long screen-off in the "exit node only" mode.** The wake restart cancelled a link and immediately added it again, but the core keeps a removed link in its map until the goroutine that owns it exits, and the add was answered with "already configured" without dialling, so the peer stayed dead until the tunnel was rebuilt; the links are now dropped first, the node is polled until it forgets them, and only then added back.
+- **A peer the node refused to restore is retried instead of lost.** The restore after the sleep puts such a peer back on the list and the supervisor asks the node again on every tick, so a network that was still coming up no longer costs the peer until a reconnect.
+- **A missed screen-on broadcast no longer keeps the public peers dropped.** When the window comes back and the cached screen state still says "off", the service re-reads the real state from the power manager and runs the whole wake path, restoring the peers and recreating the links that did not survive the sleep.
+
 ## [1.5.29] — 2026-11-26
 
 ### Fixed

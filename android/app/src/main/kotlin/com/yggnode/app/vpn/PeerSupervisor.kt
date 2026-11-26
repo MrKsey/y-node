@@ -109,8 +109,12 @@ class PeerSupervisor(
     }
 
     /** Peers dropped by the screen-off "exit node only" mode, in the order they
-     *  were configured, restored on the next wake. */
+     *  were configured, restored on the next wake. A peer that the node refused
+     *  to take back stays here and is retried on the health tick. */
     private val suspended = mutableListOf<PeerEntry>()
+
+    /** When the last retry of a failed restore ran, in elapsed-realtime millis. */
+    private var lastRestoreAt = 0L
 
     /** True while the screen is off and only the pinned exit links stay up. */
     @Volatile
@@ -160,7 +164,10 @@ class PeerSupervisor(
                 }
                 val drop = active.filter { !it.pinned }
                 if (drop.isEmpty()) return false
-                suspended.clear()
+                // A restore the node refused may still be pending here. The
+                // list is merged instead of cleared so the screen going off
+                // again does not lose those peers for good.
+                suspended.removeAll { peer -> drop.any { it.uri == peer.uri } }
                 suspended.addAll(drop)
                 for (peer in drop) {
                     try {
@@ -183,18 +190,31 @@ class PeerSupervisor(
             if (suspended.isEmpty()) return false
             val restored = suspended.toList()
             suspended.clear()
+            var failed = 0
+            var restoredCount = 0
             for (peer in restored) {
                 if (active.any { it.uri == peer.uri }) continue
                 try {
                     node.addPeer(peer.uri)
                 } catch (t: Throwable) {
-                    onLog("ERROR", "could not restore ${peer.uri}: ${t.message}")
+                    // The network may still be coming up after the sleep. The
+                    // peer goes back to the list so the next tick tries again
+                    // instead of losing it until the tunnel is rebuilt.
+                    onLog("WARN", "could not restore ${peer.uri}, will retry: ${t.message}")
+                    suspended.add(peer)
+                    failed++
                     continue
                 }
                 active.add(peer)
                 addedAt[peer.uri] = now
+                restoredCount++
             }
-            onLog("INFO", "screen on: ${restored.size} peer(s) restored")
+            onLog(
+                "INFO",
+                "screen on: $restoredCount peer(s) restored" +
+                    if (failed > 0) ", $failed to retry" else "",
+            )
+            if (restoredCount == 0) return false
             onActiveChanged(active.toList())
             return true
         }
@@ -256,45 +276,101 @@ class PeerSupervisor(
     }
 
     /**
-     * Drops and re-adds every active link. Android may freeze the network while
-     * the screen is off, and a TCP link that lost its path stays "up" in the
-     * core: there is no keep-alive and no read deadline, so the node keeps
-     * writing into a dead socket. Recreating the links is the only way back
-     * without tearing the whole tunnel down.
+     * Recreates the given links. Android may freeze the network while the
+     * screen is off, and a TCP link that lost its path stays "up" in the core:
+     * there is no keep-alive and no read deadline, so the node keeps writing
+     * into a dead socket. Recreating the links is the only way back without
+     * tearing the whole tunnel down.
+     *
+     * The core deletes a link from its map only after the goroutine that owns
+     * it exits, and an add for a link that is still there answers "already
+     * configured" without dialling. The links are therefore dropped first, the
+     * node is polled until it forgets them, and only then are they added back.
      */
-    fun restartLinks(reason: String) {
+    fun restartLinks(peers: List<PeerEntry>, reason: String) {
         val now = android.os.SystemClock.elapsedRealtime()
-        var restarted = 0
-        synchronized(lock) {
-            if (active.isEmpty()) return
-            for (peer in active) {
-                try {
-                    node.removePeer(peer.uri)
-                } catch (t: Throwable) {
+        // A link younger than the fresh window was dialled after the sleep, so
+        // its socket is new: the peers of the "exit node only" mode are
+        // restored right before this call and must not be cancelled again.
+        val targets = peers.filter { peer ->
+            val born = synchronized(lock) { addedAt[peer.uri] } ?: 0L
+            born == 0L || now - born >= LINK_FRESH_MS
+        }
+        if (targets.isEmpty()) return
+        for (peer in targets) {
+            try {
+                node.removePeer(peer.uri)
+            } catch (t: Throwable) {
+                if (!t.message.orEmpty().contains("not configured")) {
                     onLog("WARN", "could not drop ${peer.uri}: ${t.message}")
                 }
+            }
+        }
+        val keys = targets.map { peerKey(it.uri) }.toSet()
+        if (!waitForLinksGone(keys, LINK_RESTART_WAIT_MS)) {
+            onLog(
+                "WARN",
+                "restart: the node kept some links longer than ${LINK_RESTART_WAIT_MS} ms",
+            )
+        }
+        var restarted = 0
+        for (peer in targets) {
+            if (synchronized(lock) { active.none { it.uri == peer.uri } }) continue
+            var added = false
+            var lastError = ""
+            for (attempt in 1..LINK_RESTART_ATTEMPTS) {
                 try {
                     node.addPeer(peer.uri)
-                    addedAt[peer.uri] = now
-                    deadSince.remove(peer.uri)
-                    restarted++
+                    added = true
+                    break
                 } catch (t: Throwable) {
-                    onLog("WARN", "could not re-add ${peer.uri}: ${t.message}")
-                    // The link is gone from the node now: try once more so the
-                    // peer is not lost until the service is restarted.
-                    try {
-                        node.addPeer(peer.uri)
-                        restarted++
-                    } catch (_: Throwable) {
+                    lastError = t.message.orEmpty()
+                    if (attempt < LINK_RESTART_ATTEMPTS) {
+                        try {
+                            Thread.sleep(LINK_RESTART_RETRY_MS)
+                        } catch (_: InterruptedException) {
+                            Thread.currentThread().interrupt()
+                            return
+                        }
                     }
                 }
             }
-            if (restarted > 0) {
-                onLog("INFO", "restarted $restarted peer link(s): $reason")
-                onActiveChanged(active.toList())
+            if (!added) {
+                onLog("WARN", "could not re-add ${peer.uri}: $lastError")
+                continue
+            }
+            synchronized(lock) {
+                addedAt[peer.uri] = android.os.SystemClock.elapsedRealtime()
+                deadSince.remove(peer.uri)
+            }
+            restarted++
+        }
+        if (restarted > 0) {
+            onLog("INFO", "restarted $restarted peer link(s): $reason")
+            synchronized(lock) { onActiveChanged(active.toList()) }
+            publishLiveStats()
+        }
+    }
+
+    /** True once the node reports none of the given links any more. */
+    private fun waitForLinksGone(keys: Set<String>, timeoutMs: Long): Boolean {
+        if (keys.isEmpty()) return true
+        val deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs
+        while (true) {
+            val present = try {
+                parse(node.peersJSON).map { peerKey(it.uri) }.toSet()
+            } catch (_: Throwable) {
+                return false
+            }
+            if (keys.none { it in present }) return true
+            if (android.os.SystemClock.elapsedRealtime() >= deadline) return false
+            try {
+                Thread.sleep(LINK_RESTART_POLL_MS)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return false
             }
         }
-        if (restarted > 0) publishLiveStats()
     }
 
     fun start(active: List<PeerEntry>, pool: List<PeerEntry>) {
@@ -346,6 +422,9 @@ class PeerSupervisor(
             val previous = active.map { it.uri }.toSet()
             active = peers.toMutableList()
             deadSince.keys.retainAll(active.map { it.uri }.toSet())
+            // A peer that was dropped for the screen and is gone from the new
+            // list must not come back on the next restore.
+            suspended.retainAll { peer -> peers.any { it.uri == peer.uri } }
             // The store is what a connect reads, so it is written before the Go
             // node is touched: a disconnect racing with this call must not bring
             // the previous list back.
@@ -459,6 +538,14 @@ class PeerSupervisor(
         onStats(up, total, avg, peersJson)
 
         synchronized(lock) {
+            // 0. A restore that ran while the network was still coming up after
+            //    the sleep left its peers in `suspended`. Ask the node again on
+            //    every tick, otherwise they would stay gone until a reconnect.
+            if (!exitOnly && suspended.isNotEmpty() && now - lastRestoreAt >= RESTORE_RETRY_MS) {
+                lastRestoreAt = now
+                applyExitOnlyLocked(false)
+            }
+
             // 1. Track how long each active peer has been down.
             for (peer in active) {
                 val state = byUri[peer.uri] ?: byUri[peerKey(peer.uri)]
@@ -710,5 +797,20 @@ class PeerSupervisor(
          *  still handshaking, so the list fills in as the links come up. */
         private const val FAST_START_MS = 30_000L
         private const val FAST_START_INTERVAL_MS = 1_000L
+
+        /** A link younger than this was dialled after the sleep and is left
+         *  alone by a wake restart: its socket is already new. */
+        private const val LINK_FRESH_MS = 10_000L
+
+        /** How long the core may keep a removed link in its map. The entry goes
+         *  away only when the link goroutine exits, and an add before that is
+         *  answered with "already configured" without dialling. */
+        private const val LINK_RESTART_WAIT_MS = 4_000L
+        private const val LINK_RESTART_POLL_MS = 25L
+        private const val LINK_RESTART_ATTEMPTS = 5
+        private const val LINK_RESTART_RETRY_MS = 60L
+
+        /** How often a restore the node refused is retried on the health tick. */
+        private const val RESTORE_RETRY_MS = 5_000L
     }
 }

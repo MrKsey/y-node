@@ -1446,12 +1446,20 @@ class YggVpnService : VpnService() {
         if (offAt <= 0L || !isActive || stopping) return
         val slept = SystemClock.elapsedRealtime() - offAt
         if (slept < SLEEP_RESTART_MS) return
-        ConnectionLog.append(
-            "SERVICE",
-            "screen was off for ${slept / 1000}s, restarting the peer links",
-        )
+        val reason = "screen was off for ${slept / 1000}s"
+        ConnectionLog.append("SERVICE", "$reason, restarting the peer links")
         worker.execute {
-            supervisor?.restartLinks("screen was off for ${slept / 1000}s")
+            val sup = supervisor
+            if (sup != null) {
+                // The links that survived the sleep are the ones that may hold
+                // a socket the network forgot. The peers dropped by the "exit
+                // node only" mode are not in this list: restoring them dials
+                // them afresh, and restarting a fresh link would only cancel
+                // it again.
+                val kept = sup.currentPeers()
+                sup.setExitOnly(false)
+                sup.restartLinks(kept, reason)
+            }
             requestExitCheck()
         }
     }
@@ -1507,6 +1515,12 @@ class YggVpnService : VpnService() {
         // Without this the screen came back showing the tunnel and its peers
         // exactly as they were before the pause.
         VpnState.notifyCurrent()
+        // Some vendor builds miss ACTION_SCREEN_ON after a deep sleep, and the
+        // cached value then keeps the tunnel at the background pace with the
+        // public peers of the "exit node only" mode still dropped. A window
+        // that comes back is proof the screen is on: the callback runs the
+        // whole wake path, this call included, from a correct state.
+        if (!screenInteractive) screenMonitor?.refresh()
         if (!isActive) return
         // Some vendor builds miss ACTION_SCREEN_ON after a deep sleep: the
         // window coming back is the second chance to replace dead links.

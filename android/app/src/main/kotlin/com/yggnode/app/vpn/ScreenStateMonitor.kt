@@ -66,4 +66,14 @@ class ScreenStateMonitor(
         }
         registered = false
     }
+
+    /**
+     * Re-reads the real screen state. Some vendor builds miss
+     * ACTION_SCREEN_ON after a deep sleep, and the cached value would keep the
+     * service at the background pace with the "exit node only" peers still
+     * dropped. A changed value runs the same path a real broadcast would.
+     */
+    fun refresh() {
+        update(powerManager?.isInteractive ?: true)
+    }
 }
