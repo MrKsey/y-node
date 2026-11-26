@@ -4,6 +4,15 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.31] — 2026-11-26
+
+### Fixed
+
+- **The public peers come back on their own after a long sleep.** The "exit node only" mode parked the peer loop until `ACTION_SCREEN_ON`, and some vendor builds lose that broadcast after a deep sleep, so the loop stayed parked with the public peers dropped until the window was opened; the parked loop now re-reads the real screen state every fifteen seconds and runs the whole wake path as soon as the screen is back.
+- **Unlocking the phone also ends the "exit node only" mode.** The service now listens for `ACTION_USER_PRESENT` next to the screen broadcasts, so a build that drops the screen-on signal still wakes the peers when the phone is unlocked, before the app is opened.
+- **A peer waiting for its retry is restored in seconds, not a minute.** After a wake the network may still be coming up and the node refuses a peer; the supervisor now ticks at the five-second retry pace while such a peer is pending instead of waiting out the hidden-window interval.
+- **A wake-up alarm slot re-reads the screen state too.** An alarm that fires after the screen is already back no longer acts on the stale "screen off" cache: the service checks the power manager first and runs the wake path.
+
 ## [1.5.30] — 2026-11-26
 
 ### Fixed

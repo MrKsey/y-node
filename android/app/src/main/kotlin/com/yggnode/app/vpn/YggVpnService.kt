@@ -981,6 +981,11 @@ class YggVpnService : VpnService() {
             onPoolEmpty = {
                 poolWorker.execute { refillPoolFromCache() }
             },
+            // The parked "exit node only" loop asks on a timer whether the
+            // screen is back: ACTION_SCREEN_ON is not delivered on every vendor
+            // build after a deep sleep, and without this the public peers would
+            // stay dropped until the window is opened.
+            onIdlePoll = { screenMonitor?.refresh() },
         ).also {
             it.start(peers, prefs.pool())
             // A connect started from the panel can run with the screen already
@@ -1657,6 +1662,11 @@ class YggVpnService : VpnService() {
     }
 
     private fun handleWakeup() {
+        // The alarm is the only wake-up this app gets in Doze, and the cached
+        // screen state may be stale when ACTION_SCREEN_ON was lost: re-read the
+        // real state before deciding what this slot is for. A screen that is
+        // already back runs the whole wake path, this call included.
+        screenMonitor?.refresh()
         if (!screenInteractive && isActive && prefs.settings().autoReplace) {
             prefs.noteWakeUp()
             acquireWakeLock()

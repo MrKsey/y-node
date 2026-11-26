@@ -34,6 +34,12 @@ class ScreenStateMonitor(
             when (intent?.action) {
                 Intent.ACTION_SCREEN_ON -> update(true)
                 Intent.ACTION_SCREEN_OFF -> update(false)
+                // Delivered when the user unlocks the phone. Some vendor builds
+                // drop ACTION_SCREEN_ON after a deep sleep but still send this
+                // one, and by the time the window is opened the phone is always
+                // unlocked: the second signal costs nothing and ends the
+                // "exit node only" mode before the app is even visible.
+                Intent.ACTION_USER_PRESENT -> update(true)
             }
         }
     }
@@ -49,6 +55,7 @@ class ScreenStateMonitor(
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_USER_PRESENT)
         }
         try {
             context.registerReceiver(receiver, filter)
