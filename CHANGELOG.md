@@ -4,6 +4,15 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.32] — 2026-11-27
+
+### Fixed
+
+- **The exit node no longer stays "unavailable" until the tunnel is restarted.** The Yggdrasil core has no keep-alive and no read deadline on a TCP link, so a link whose path died keeps reporting "up" while the node writes into a socket that carries nothing; the exit health poll is the one request that goes through Yggdrasil to the exit, so two polls that cannot reach it now drop the pinned link and dial it again, with a wait that doubles from a minute to five while the node is really offline.
+- **The notification panel follows the peer counts again.** The panel was redrawn only by the stats loop, so a tunnel that woke with "0/0" or "1/4" kept that line until the app was opened; every supervisor tick now refreshes the notification, and a wake re-enters the fast start pace so the links come up one by one in the panel.
+- **A missed screen-on broadcast no longer freezes the panel.** The service now re-reads the real screen state on its own timer while the screen is supposed to be off, so a lost `ACTION_SCREEN_ON` no longer keeps the stats loop parked and the peers of the "exit node only" mode dropped until the window is opened.
+- **The stats loop survives a failed snapshot.** A throw in one stats push used to end the thread for good and leave the panel with the figures from that moment.
+
 ## [1.5.31] — 2026-11-26
 
 ### Fixed

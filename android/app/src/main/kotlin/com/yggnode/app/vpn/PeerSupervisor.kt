@@ -28,11 +28,6 @@ class PeerSupervisor(
      *  in. The service then probes the cached catalogue and refills the pool,
      *  so a tunnel left alone overnight can recover without the app. */
     private val onPoolEmpty: () -> Unit = {},
-    /** Called on every idle poll while the screen-off "exit node only" mode
-     *  parks the loop. The service re-reads the real screen state: some vendor
-     *  builds miss ACTION_SCREEN_ON after a deep sleep, and the poll is then
-     *  the only way to notice the screen is back. */
-    private val onIdlePoll: () -> Unit = {},
 ) {
     private data class Runtime(
         val uri: String,
@@ -249,6 +244,18 @@ class PeerSupervisor(
     fun requestCheck() {
         checkRequested = true
         synchronized(sleeper) { sleeper.notifyAll() }
+    }
+
+    /**
+     * Re-enters the fast start pace. A tunnel that just woke has its links
+     * coming up one by one, and the hidden-window tick would leave the panel at
+     * "1/4" for a minute; the fast pace stops by itself once every link is up.
+     */
+    fun restartWarmUp() {
+        startedAt = android.os.SystemClock.elapsedRealtime()
+        lastUp = 0
+        lastTotal = 0
+        requestCheck()
     }
 
     /**
@@ -470,14 +477,6 @@ class PeerSupervisor(
         while (running) {
             checkRequested = false
             val settings = settingsProvider()
-            // The loop parks itself while the screen is off: the "exit node
-            // only" mode or a negative pace leaves nothing to do. Only
-            // ACTION_SCREEN_ON is meant to end that, and some vendor builds
-            // lose it after a deep sleep, so the parked loop also re-reads the
-            // real screen state on a timer: the service then runs its wake
-            // path and the next tick sees the restored peers.
-            val parked = exitOnly || overrideIntervalMs < 0L
-            if (parked) onIdlePoll()
             // The requests made before this tick started are what this tick
             // answers. One that comes in while the tick runs needs the next
             // tick, otherwise the caller would be told "done" with the state
@@ -498,21 +497,21 @@ class PeerSupervisor(
                 FAST_START_MS && (lastTotal == 0 || lastUp < lastTotal)
             val pendingRestore = synchronized(lock) { suspended.isNotEmpty() }
             val sleep = when {
-                // Only the exit link is kept while the screen is off. The poll
-                // above is the only way out when ACTION_SCREEN_ON is lost, so
-                // the wait has a timeout instead of parking for good.
-                exitOnly -> SCREEN_POLL_MS
+                // Only the exit link is kept while the screen is off. There is
+                // nothing to replace and nothing to top up, and the wake-up
+                // alarm already asks for one check per slot: a timer here would
+                // wake the CPU a second time for the same look. The service
+                // re-reads the screen state on its own timer, so a missed
+                // ACTION_SCREEN_ON still ends the mode.
+                exitOnly -> 0L
                 // A restore the node refused is retried on every tick, and the
                 // network may still be coming up after the sleep: keep the ticks
                 // at the retry pace until the list is whole again.
                 pendingRestore -> RESTORE_RETRY_MS
                 // A negative pace means "park": with auto replace off there is
                 // nothing to do while the screen is off, and the loop waits for
-                // a real request instead of waking the CPU on a timer. The
-                // timeout only bounds the sleep: a plain wait does not keep the
-                // CPU awake by itself, and it lets the screen poll above run
-                // once the device is up for another reason.
-                overrideIntervalMs < 0L -> SCREEN_POLL_MS
+                // a real request instead of waking the CPU on a timer.
+                overrideIntervalMs < 0L -> 0L
                 overrideIntervalMs > 0L -> maxOf(overrideIntervalMs, base)
                 // A fresh tunnel finishes its handshakes one by one. Reading
                 // the list once a second makes the rows turn green as they come
@@ -832,10 +831,5 @@ class PeerSupervisor(
 
         /** How often a restore the node refused is retried on the health tick. */
         private const val RESTORE_RETRY_MS = 5_000L
-
-        /** How often a parked loop re-reads the screen state while waiting for
-         *  ACTION_SCREEN_ON that some vendor builds lose. The poll costs a flag
-         *  read and does not keep the CPU awake by itself. */
-        private const val SCREEN_POLL_MS = 15_000L
     }
 }

@@ -85,6 +85,23 @@ class YggVpnService : VpnService() {
          *  can leave a TCP link in a state the core never notices. */
         private const val SLEEP_RESTART_MS = 120_000L
 
+        /** How often a sleeping service re-reads the real screen state. Some
+         *  vendor builds drop ACTION_SCREEN_ON after a deep sleep, and the
+         *  cached "off" value then keeps the UI timers parked and the peers of
+         *  the "exit node only" mode dropped until the window is opened. The
+         *  poll is a flag read on the main thread; it does not keep the CPU up. */
+        private const val SCREEN_POLL_MS = 15_000L
+
+        /** Consecutive exit health polls that may find the node unreachable
+         *  before its link is recreated. One failed poll can be a hiccup. */
+        private const val EXIT_UNREACHABLE_BEFORE_RESTART = 2
+
+        /** The first wait after an exit link was recreated, and the cap it
+         *  doubles up to while the exit stays unreachable. A node that is
+         *  really offline must not be redialled every minute. */
+        private const val EXIT_LINK_RESTART_MS = 60_000L
+        private const val EXIT_LINK_RESTART_MAX_MS = 300_000L
+
         /** Long enough for one round of Go timers to run, short enough not to
          *  keep the CPU up for a noticeable share of the interval. */
         private const val SCREEN_OFF_WAKE_LOCK_MS = 4_000L
@@ -457,6 +474,19 @@ class YggVpnService : VpnService() {
      *  started with the screen already off. */
     private var screenOffAt = 0L
 
+    /** True while the screen-off poll of [screenPollRunnable] is scheduled. */
+    private var screenPollScheduled = false
+
+    /** Consecutive exit health polls that found the active profile unreachable. */
+    private var exitUnreachableCount = 0
+
+    /** Earliest time the exit link may be recreated again, elapsed-realtime
+     *  millis. A node that is really offline must not be redialled every poll. */
+    private var nextExitLinkRestartAt = 0L
+
+    /** The wait after an exit link restart, doubled while the exit stays down. */
+    private var exitLinkRestartBackoffMs = EXIT_LINK_RESTART_MS
+
     /** How many nodes route their traffic through this one. Read from the
      *  spanning tree on the stats tick and shown in Diagnostics. */
     private var transitPeers = 0
@@ -783,6 +813,7 @@ class YggVpnService : VpnService() {
         goForeground(VpnState.STATUS_CONNECTED, "")
         if (!screenInteractive) {
             scheduleWakeAlarm()
+            scheduleScreenPoll()
             // The screen may have gone off while the tunnel was still coming
             // up: the screen receiver fired before the supervisor existed, so
             // the two Power switches are applied here as well.
@@ -977,15 +1008,14 @@ class YggVpnService : VpnService() {
                         peersJson = peersJson,
                     )
                 }
+                // The panel is the only consumer while the window is hidden, and
+                // a fresh tick is exactly when its "0/0 peers" line becomes a
+                // lie. The key check inside makes a repeat a no-op.
+                updateNotification()
             },
             onPoolEmpty = {
                 poolWorker.execute { refillPoolFromCache() }
             },
-            // The parked "exit node only" loop asks on a timer whether the
-            // screen is back: ACTION_SCREEN_ON is not delivered on every vendor
-            // build after a deep sleep, and without this the public peers would
-            // stay dropped until the window is opened.
-            onIdlePoll = { screenMonitor?.refresh() },
         ).also {
             it.start(peers, prefs.pool())
             // A connect started from the panel can run with the screen already
@@ -1151,6 +1181,7 @@ class YggVpnService : VpnService() {
         stopStats()
         stopExitWatch()
         cancelWakeAlarm()
+        cancelScreenPoll()
         releaseWakeLock()
         supervisor?.stop()
         supervisor = null
@@ -1384,6 +1415,7 @@ class YggVpnService : VpnService() {
         val current = prefs.settings()
         if (!interactive) {
             screenOffAt = SystemClock.elapsedRealtime()
+            scheduleScreenPoll()
             // The two Power switches own the screen-off state of the tunnel
             // itself; the code below only slows the loops down. Closing the
             // tunnel wins over keeping the exit link: there is nothing to
@@ -1401,6 +1433,7 @@ class YggVpnService : VpnService() {
                 }
             }
         } else {
+            cancelScreenPoll()
             val offAt = screenOffAt
             screenOffAt = 0L
             if (screenPaused) {
@@ -1410,6 +1443,9 @@ class YggVpnService : VpnService() {
             // Restoring the peers is cheap and idempotent: the supervisor
             // keeps the list that was dropped while the screen was off.
             supervisor?.let { sup -> worker.execute { sup.setExitOnly(false) } }
+            // The links of a tunnel that just woke come up one by one, and the
+            // panel has to follow them instead of waiting out the hidden pace.
+            supervisor?.restartWarmUp()
             restartLinksAfterSleep(offAt)
         }
         if (interactive) {
@@ -1479,6 +1515,7 @@ class YggVpnService : VpnService() {
         ConnectionLog.append("SERVICE", "screen off, closing the tunnel until the screen is back")
         prefs.noteScreenOffPause()
         screenPaused = true
+        scheduleScreenPoll()
         // The teardown joins the node and the data path, so it runs on the
         // worker like every other connect and disconnect. A resume that comes
         // in meanwhile is queued behind it on the same thread.
@@ -1537,7 +1574,7 @@ class YggVpnService : VpnService() {
         updateSupervisorPace()
         wakeStats()
         pushStats()
-        supervisor?.requestCheck()
+        supervisor?.restartWarmUp()
         requestExitCheck()
     }
 
@@ -1661,6 +1698,39 @@ class YggVpnService : VpnService() {
         wakePending = null
     }
 
+    /**
+     * Re-reads the real screen state while the screen is supposed to be off.
+     *
+     * ACTION_SCREEN_ON cannot be declared in the manifest, and some vendor
+     * builds drop it after a deep sleep. The cached "off" value then keeps the
+     * stats loop parked and the public peers of the "exit node only" mode
+     * dropped, so the panel shows the figures from before the sleep until the
+     * window is opened. The poll runs on the main thread and only reads a flag;
+     * in Doze the handler simply fires when the device is up again.
+     */
+    private val screenPollRunnable = object : Runnable {
+        override fun run() {
+            screenPollScheduled = false
+            if (screenInteractive || stopping) return
+            // A paused tunnel needs the signal as much as a running one: the
+            // service stays in the panel and only this poll can rebuild it.
+            if (!isActive && !screenPaused) return
+            screenMonitor?.refresh()
+            if (!screenInteractive && (isActive || screenPaused)) scheduleScreenPoll()
+        }
+    }
+
+    private fun scheduleScreenPoll() {
+        if (screenPollScheduled) return
+        screenPollScheduled = true
+        mainHandler.postDelayed(screenPollRunnable, SCREEN_POLL_MS)
+    }
+
+    private fun cancelScreenPoll() {
+        screenPollScheduled = false
+        mainHandler.removeCallbacks(screenPollRunnable)
+    }
+
     private fun handleWakeup() {
         // The alarm is the only wake-up this app gets in Doze, and the cached
         // screen state may be stale when ACTION_SCREEN_ON was lost: re-read the
@@ -1688,7 +1758,13 @@ class YggVpnService : VpnService() {
         stopStats()
         statsThread = Thread({
             while (isActive && !stopping) {
-                pushStats()
+                // A throw here used to end the thread for good: the panel kept
+                // the figures from that moment until the tunnel was rebuilt.
+                try {
+                    pushStats()
+                } catch (t: Throwable) {
+                    ConnectionLog.append("WARN", "stats push failed: ${t.message}")
+                }
                 // One second only for a visible window without "Save battery":
                 // that is the only case where a human watches the counters.
                 // With the window hidden the notification is the only consumer,
@@ -1770,13 +1846,15 @@ class YggVpnService : VpnService() {
                     // redeemed.
                     registered = refreshRegistration(current)
                 }
-                try {
+                val status = try {
                     node.checkExitProfiles(
                         (current.exitProfiles.size * 6000 + 4000).toLong(),
                     )
                 } catch (t: Throwable) {
                     ConnectionLog.append("WARN", "exit health check failed: ${t.message}")
+                    ""
                 }
+                noteExitHealth(status)
                 pushStats()
                 // The health check is an HTTP round trip through the tunnel.
                 // With the window hidden it is only kept warm: the data path
@@ -1857,6 +1935,74 @@ class YggVpnService : VpnService() {
         } catch (t: Throwable) {
             ConnectionLog.append("WARN", "registration refresh failed: ${t.message}")
             false
+        }
+    }
+
+    /**
+     * Watches the health answer for the active exit and recreates its link when
+     * the node stops answering.
+     *
+     * The Yggdrasil core has no keep-alive and no read deadline on a TCP link,
+     * so a link whose path died — the radio slept, the carrier rebound the NAT
+     * mapping, the Wi-Fi handover lost the flow — keeps reporting `up` and the
+     * node keeps writing into a socket that carries nothing. Nothing in the
+     * core ever notices, and the only way back is a fresh dial. The status API
+     * poll is the one request that goes through Yggdrasil to the exit, so a
+     * poll that cannot reach it is the signal: the pinned link is dropped and
+     * dialled again.
+     *
+     * A node that is really offline is not redialled on every poll: the wait
+     * doubles from a minute up to five and resets with the first healthy answer.
+     */
+    private fun noteExitHealth(raw: String) {
+        if (raw.isBlank() || !isActive || stopping) return
+        val state = try {
+            val status = JSONObject(raw)
+            val profiles = status.optJSONArray("profiles") ?: return
+            val activeId = status.optString("activeId")
+            var active: JSONObject? = null
+            for (i in 0 until profiles.length()) {
+                val item = profiles.optJSONObject(i) ?: continue
+                if (active == null) active = item
+                if (activeId.isNotEmpty() && item.optString("id") == activeId) {
+                    active = item
+                    break
+                }
+            }
+            active?.optString("state").orEmpty()
+        } catch (_: Exception) {
+            return
+        }
+        when (state) {
+            "online" -> {
+                if (exitUnreachableCount > 0) {
+                    ConnectionLog.append("INFO", "the exit node answers again")
+                }
+                exitUnreachableCount = 0
+                exitLinkRestartBackoffMs = EXIT_LINK_RESTART_MS
+            }
+            // "denied" means the exit answered and refused this client: its
+            // link is fine, so recreating it would only cost a handshake.
+            "unreachable" -> {
+                exitUnreachableCount++
+                if (exitUnreachableCount < EXIT_UNREACHABLE_BEFORE_RESTART) return
+                val now = SystemClock.elapsedRealtime()
+                if (now < nextExitLinkRestartAt) return
+                nextExitLinkRestartAt = now + exitLinkRestartBackoffMs
+                exitLinkRestartBackoffMs =
+                    minOf(exitLinkRestartBackoffMs * 2, EXIT_LINK_RESTART_MAX_MS)
+                exitUnreachableCount = 0
+                ConnectionLog.append(
+                    "WARN",
+                    "the exit node did not answer, recreating its link",
+                )
+                worker.execute {
+                    val sup = supervisor ?: return@execute
+                    val pinned = sup.currentPeers().filter { it.pinned }
+                    if (pinned.isEmpty()) return@execute
+                    sup.restartLinks(pinned, "the exit node stopped answering")
+                }
+            }
         }
     }
 
