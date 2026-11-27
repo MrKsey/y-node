@@ -4,6 +4,14 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.34] — 2026-11-27
+
+### Fixed
+
+- **The tunnel no longer runs out of local ports after a few minutes of browsing.** Every app connection that goes through the exit node is an endpoint of the node's own userspace stack, and a closed one held its port for the default 60-second TIME_WAIT; a social network opened short connections faster than a range of 900 ports could release them, and the dial then failed for the exit health poll, the Yggdrasil DNS check and every new proxied connection alike, which looked like a dead core although every link was up. The range is now 4000 ports (61000-64999), the stack chooses the port itself so a lingering one can be reused, and TIME_WAIT is 5 seconds.
+- **A link whose socket is alive but whose overlay session is gone is replaced.** The core reports such a peer as "up" because the TCP connection is open, while ironwood has already dropped it and nothing is routed through it; the supervisor now treats a link with no measured overlay latency for 30 seconds as dead and swaps in a fresh peer from the pool.
+- **A failed internal dial names its cause in the log.** The number of connected endpoints and of opened and closed connections is logged with the port failure, so the next report shows whether the range was exhausted or something else broke.
+
 ## [1.5.33] — 2026-11-27
 
 ### Fixed

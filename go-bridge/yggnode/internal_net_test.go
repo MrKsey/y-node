@@ -1,9 +1,12 @@
 package yggnode
 
 import (
+	"context"
 	"encoding/binary"
 	"net"
+	"sync"
 	"testing"
+	"time"
 
 	"gvisor.dev/gvisor/pkg/tcpip"
 )
@@ -77,5 +80,82 @@ func TestInternalNetOwnsFragments(t *testing.T) {
 	}
 	if internal.owns(fragment(0, 0x99AABBCC, true, udpHeader(53))) {
 		t.Fatal("the first fragment of a datagram to port 53 was taken for an internal one")
+	}
+}
+
+// TestInternalNetDialsFromReservedPorts pins the property the whole tunnel
+// depends on: every connection of the internal stack takes its local port from
+// the reserved range, so a packet of an ordinary app can never be delivered to
+// it, and many connections at once still fit. A dial that binds its port by
+// hand used to lose that port for the full TIME_WAIT and exhausted the range.
+func TestInternalNetDialsFromReservedPorts(t *testing.T) {
+	node := net.ParseIP("200::1")
+	packets := make(chan []byte, 1024)
+	inner, err := newInternalNet(1280, "200::1", func(packet []byte) error {
+		select {
+		case packets <- append([]byte(nil), packet...):
+		default:
+		}
+		return nil
+	}, &goLogger{})
+	if err != nil {
+		t.Fatalf("internal net: %v", err)
+	}
+	defer inner.stop()
+
+	const dials = 200
+	var wg sync.WaitGroup
+	for i := 0; i < dials; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			defer cancel()
+			// Nobody answers: the SYN is all this test needs.
+			conn, err := inner.dialContext(ctx, "tcp", "[200::2]:80")
+			if err == nil {
+				_ = conn.Close()
+			}
+		}()
+	}
+
+	ports := make(map[uint16]bool)
+	timeout := time.After(5 * time.Second)
+	for len(ports) < dials {
+		select {
+		case packet := <-packets:
+			if len(packet) < 44 || packet[6] != 6 {
+				continue
+			}
+			if !net.IP(packet[8:24]).Equal(node) {
+				t.Fatalf("a dial used source %s instead of the node address", net.IP(packet[8:24]))
+			}
+			port := binary.BigEndian.Uint16(packet[40:42])
+			if !inner.portOwned(port) {
+				t.Fatalf("a dial took port %d, outside the reserved range", port)
+			}
+			ports[port] = true
+		case <-timeout:
+			t.Fatalf("only %d of %d dials reached the node", len(ports), dials)
+		}
+	}
+	wg.Wait()
+}
+
+// TestInternalNetPortRangeBounds pins the reserved range itself: the last port
+// must be owned and the first one outside it must not be.
+func TestInternalNetPortRangeBounds(t *testing.T) {
+	inner := &internalNet{}
+	if !inner.portOwned(internalPortBase) {
+		t.Fatal("the first port of the range is not owned")
+	}
+	if !inner.portOwned(internalPortBase + internalPortCount - 1) {
+		t.Fatal("the last port of the range is not owned")
+	}
+	if inner.portOwned(internalPortBase + internalPortCount) {
+		t.Fatal("a port past the range is owned")
+	}
+	if inner.portOwned(internalPortBase - 1) {
+		t.Fatal("a port below the range is owned")
 	}
 }

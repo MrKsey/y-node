@@ -47,6 +47,12 @@ class PeerSupervisor(
     /** When each peer was first seen down, in elapsed-realtime milliseconds. */
     private val deadSince = HashMap<String, Long>()
 
+    /** When each peer was first seen with its TCP link up but no overlay
+     *  session, in elapsed-realtime milliseconds. The core reports such a link
+     *  as `up` because the socket is open, yet ironwood has already dropped the
+     *  peer and nothing is routed through it: latency stays zero. */
+    private val silentSince = HashMap<String, Long>()
+
     /** When each peer was put into the active list. A fresh link needs time to
      *  finish its handshake before it may be declared dead. */
     private val addedAt = HashMap<String, Long>()
@@ -177,6 +183,7 @@ class PeerSupervisor(
                     }
                     deadSince.remove(peer.uri)
                     addedAt.remove(peer.uri)
+                    silentSince.remove(peer.uri)
                 }
                 active.removeAll { !it.pinned }
                 prefs.noteScreenOffDrop()
@@ -391,6 +398,7 @@ class PeerSupervisor(
             this.active = active.toMutableList()
             this.pool = pool.toMutableList()
             deadSince.clear()
+            silentSince.clear()
             addedAt.clear()
             for (peer in active) {
                 addedAt[peer.uri] = now
@@ -434,6 +442,7 @@ class PeerSupervisor(
             val previous = active.map { it.uri }.toSet()
             active = peers.toMutableList()
             deadSince.keys.retainAll(active.map { it.uri }.toSet())
+            silentSince.keys.retainAll(active.map { it.uri }.toSet())
             // A peer that was dropped for the screen and is gone from the new
             // list must not come back on the next restore.
             suspended.retainAll { peer -> peers.any { it.uri == peer.uri } }
@@ -565,13 +574,23 @@ class PeerSupervisor(
                 applyExitOnlyLocked(false)
             }
 
-            // 1. Track how long each active peer has been down.
+            // 1. Track how long each active peer has been down, and how long a
+            //    peer whose TCP link is still open has had no overlay session.
+            //    The second case is the one that used to look healthy forever:
+            //    the core keeps the socket, ironwood has dropped the peer, and
+            //    every packet written into the link disappears.
             for (peer in active) {
                 val state = byUri[peer.uri] ?: byUri[peerKey(peer.uri)]
                 if (state != null && state.up) {
                     deadSince.remove(peer.uri)
+                    if (state.latencyMs > 0.0) {
+                        silentSince.remove(peer.uri)
+                    } else {
+                        silentSince.putIfAbsent(peer.uri, now)
+                    }
                 } else {
                     deadSince.putIfAbsent(peer.uri, now)
+                    silentSince.remove(peer.uri)
                 }
             }
 
@@ -585,11 +604,20 @@ class PeerSupervisor(
                     // A pinned exit peer is never replaced: it is the direct
                     // link to the exit node and the profile owns its lifetime.
                     if (peer.pinned) return@firstOrNull false
-                    val since = deadSince[peer.uri] ?: return@firstOrNull false
                     val born = addedAt[peer.uri] ?: 0L
-                    now - since >= timeoutMs && now - born >= GRACE_MS
+                    if (now - born < GRACE_MS) return@firstOrNull false
+                    val downSince = deadSince[peer.uri]
+                    if (downSince != null && now - downSince >= timeoutMs) return@firstOrNull true
+                    val silent = silentSince[peer.uri] ?: return@firstOrNull false
+                    now - silent >= OVERLAY_SILENT_MS
                 }
                 if (dead != null) {
+                    if (silentSince.containsKey(dead.uri)) {
+                        onLog(
+                            "WARN",
+                            "peer ${dead.uri} keeps its TCP link but the overlay is silent",
+                        )
+                    }
                     replaceLocked(dead, settings, now)
                 }
             }
@@ -632,6 +660,7 @@ class PeerSupervisor(
             // 6. Forget stale penalties and dead timers for peers that are gone.
             val activeUris = active.map { it.uri }.toSet()
             deadSince.keys.retainAll(activeUris)
+            silentSince.keys.retainAll(activeUris)
             penalisedUntil.entries.removeAll { it.value < now }
         }
     }
@@ -664,6 +693,7 @@ class PeerSupervisor(
         active.add(candidate)
         pool.removeAll { it.uri == candidate.uri }
         deadSince.remove(dead.uri)
+        silentSince.remove(dead.uri)
         addedAt[candidate.uri] = now
         addedAt.remove(dead.uri)
         penalisedUntil[dead.uri] = now + PENALTY_MS
@@ -808,6 +838,12 @@ class PeerSupervisor(
 
         /** How long a freshly added peer may stay down before it is replaced. */
         private const val GRACE_MS = 90 * 1000L
+
+        /** How long a link may report `up` with no overlay latency before it is
+         *  treated as dead. The core keeps the TCP socket open after ironwood
+         *  drops the peer, so the link looks healthy while nothing is routed
+         *  through it; ironwood itself measures a live peer every second. */
+        private const val OVERLAY_SILENT_MS = 30 * 1000L
 
         /** How often an empty pool may trigger a background probe. */
         private const val POOL_REQUEST_MS = 10 * 60 * 1000L

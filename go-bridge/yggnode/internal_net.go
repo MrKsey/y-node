@@ -39,8 +39,29 @@ import (
 const (
 	internalNIC tcpip.NICID = 4
 
-	internalPortBase  = 61000
-	internalPortCount = 900
+	// The reserved range must sit above the ephemeral ports the kernel hands
+	// out (32768-60999 on Android), so a packet of an ordinary app socket can
+	// never be mistaken for one of the node's own connections.
+	internalPortBase = 61000
+
+	// Every ordinary TCP connection of an app that goes through the exit node
+	// is one endpoint of this stack, and a closed one holds its port for the
+	// TIME_WAIT below. A social network opens hundreds of short connections, so
+	// a range of a few hundred ports ran out within minutes: the dial then
+	// failed for the health poll, the DNS check and the exit alike, and the
+	// whole Yggdrasil path looked dead although every link was up. The range
+	// now ends at 64999, the highest it can be without colliding with the
+	// ephemeral ports of the kernel (32768-60999).
+	internalPortCount = 4000
+
+	// internalTimeWait is the TIME_WAIT of this stack. The default minute is
+	// meant for a server; on a phone it turns the port range into the bottleneck
+	// of the tunnel, because a port cannot be handed out again while it lingers.
+	internalTimeWait = 5 * time.Second
+
+	// internalDialAttempts is how many ports are tried before a dial gives up.
+	// A port taken by a lingering connection must not fail the connection.
+	internalDialAttempts = 32
 
 	internalQueue = 64
 
@@ -66,9 +87,6 @@ type internalNet struct {
 	done   chan struct{}
 	once   sync.Once
 
-	mu       sync.Mutex
-	nextPort uint16
-
 	fragMu sync.Mutex
 	frags  map[uint32]time.Time
 }
@@ -91,6 +109,23 @@ func newInternalNet(
 		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv6.NewProtocol},
 		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol},
 	})
+
+	// A port of this stack is a scarce resource: every forwarded TCP connection
+	// of an app takes one, and a closed one holds it for TIME_WAIT. Both options
+	// keep the range usable at the rate a phone opens and closes connections.
+	//
+	// The stack allocates the local port of every connection itself, so the
+	// range has to be the one owns() reserves: a packet of the kernel cannot be
+	// mistaken for a connection of this stack. Handing the choice to the stack
+	// is also what lets it reuse a port that is still in TIME_WAIT; a port bound
+	// by hand can never be reused and is simply lost for the whole timeout.
+	if err := s.SetPortRange(internalPortBase, internalPortBase+internalPortCount-1); err != nil {
+		return nil, fmt.Errorf("internal port range: %v", err)
+	}
+	timeWait := tcpip.TCPTimeWaitTimeoutOption(internalTimeWait)
+	_ = s.SetTransportProtocolOption(tcp.ProtocolNumber, &timeWait)
+	reuse := tcpip.TCPTimeWaitReuseOption(tcpip.TCPTimeWaitReuseGlobal)
+	_ = s.SetTransportProtocolOption(tcp.ProtocolNumber, &reuse)
 
 	link := channel.New(internalQueue, uint32(mtu), "")
 	if err := s.CreateNIC(internalNIC, link); err != nil {
@@ -117,14 +152,13 @@ func newInternalNet(
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t := &internalNet{
-		stack:    s,
-		link:     link,
-		write:    write,
-		log:      log,
-		addr:     addr,
-		cancel:   cancel,
-		done:     make(chan struct{}),
-		nextPort: internalPortBase + 1,
+		stack:  s,
+		link:   link,
+		write:  write,
+		log:    log,
+		addr:   addr,
+		cancel: cancel,
+		done:   make(chan struct{}),
 	}
 	go t.pumpOutbound(ctx)
 	return t, nil
@@ -293,47 +327,60 @@ func (t *internalNet) dialContext(ctx context.Context, network, address string) 
 		Port: uint16(port),
 	}
 
-	// A port can be taken by a previous connection that is still closing; try a
-	// handful before giving up.
+	// A port can be taken by a previous connection that is still closing; the
+	// stack picks another one on the next attempt. Any other failure, a refused
+	// connection or a deadline included, is final: retrying it would only hide
+	// the real cause.
 	var lastErr error
-	for attempt := 0; attempt < 8; attempt++ {
-		local := tcpip.FullAddress{
-			NIC:  internalNIC,
-			Addr: t.addr,
-			Port: t.takePort(),
-		}
+	for attempt := 0; attempt < internalDialAttempts; attempt++ {
+		var derr error
 		switch network {
 		case "tcp", "tcp6":
-			conn, derr := gonet.DialTCPWithBind(ctx, t.stack, local, remote, ipv6.ProtocolNumber)
+			var conn net.Conn
+			conn, derr = gonet.DialContextTCP(ctx, t.stack, remote, ipv6.ProtocolNumber)
 			if derr == nil {
 				return conn, nil
 			}
-			lastErr = derr
 		case "udp", "udp6":
-			conn, derr := gonet.DialUDP(t.stack, &local, &remote, ipv6.ProtocolNumber)
+			local := tcpip.FullAddress{NIC: internalNIC, Addr: t.addr}
+			var conn net.Conn
+			conn, derr = gonet.DialUDP(t.stack, &local, &remote, ipv6.ProtocolNumber)
 			if derr == nil {
 				return conn, nil
 			}
-			lastErr = derr
 		default:
 			return nil, fmt.Errorf("unsupported network %q", network)
+		}
+		lastErr = derr
+		if !portFailure(derr) {
+			return nil, derr
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
 	}
 	if lastErr == nil {
 		lastErr = errors.New("no local port available")
 	}
+	// The range is exhausted or every port that was free belongs to a
+	// connection that is still closing. This is the failure that used to look
+	// like a dead exit node and a dead Yggdrasil, so it is named in the log
+	// together with the number of endpoints that hold a port.
+	stats := t.stack.Stats().TCP
+	t.log.emit("warn",
+		"internal net: %s dial to %s failed after %d ports: %v (connected %d, established %d, opened %d, closed %d)",
+		network, address, internalDialAttempts, lastErr,
+		stats.CurrentConnected.Value(), stats.CurrentEstablished.Value(),
+		stats.ActiveConnectionOpenings.Value(), stats.EstablishedClosed.Value())
 	return nil, lastErr
 }
 
-func (t *internalNet) takePort() uint16 {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	port := t.nextPort
-	t.nextPort++
-	if t.nextPort >= internalPortBase+internalPortCount {
-		t.nextPort = internalPortBase + 1
-	}
-	return port
+// portFailure reports whether a dial failed because the local stack could not
+// reserve a port. gVisor wraps the typed error of the endpoint into a plain one,
+// so the text of the two port errors is all that is left to match.
+func portFailure(err error) bool {
+	text := err.Error()
+	return strings.Contains(text, "no port available") || strings.Contains(text, "port in use")
 }
 
 func (t *internalNet) stop() {
