@@ -1506,8 +1506,11 @@ class YggVpnService : VpnService() {
         } else if (interactive) {
             // The window is not on screen, but the panel is: give the stats
             // loop a tick so the notification shows the numbers from this
-            // moment instead of the ones from before the sleep.
+            // moment instead of the ones from before the sleep. The peer
+            // counts come from the supervisor, and its loop may still be
+            // parked after the wake, so they are read from the node here.
             wakeStats()
+            worker.execute { supervisor?.publishNow() }
         }
     }
 
@@ -1610,6 +1613,10 @@ class YggVpnService : VpnService() {
         wakeStats()
         pushStats()
         supervisor?.restartWarmUp()
+        // The stats tick above only carries the traffic counters: the peer
+        // figures belong to the supervisor, and its next tick may be a minute
+        // away. A window that comes back reads the node right away.
+        worker.execute { supervisor?.publishNow() }
         requestExitCheck()
     }
 

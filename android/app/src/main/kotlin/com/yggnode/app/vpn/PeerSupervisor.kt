@@ -233,12 +233,27 @@ class PeerSupervisor(
             val raw = node.peersJSON
             val runtime = parse(raw)
             val up = runtime.count { it.up }
+            // The configured list is the truth for the total: a link the node
+            // forgot is still a peer the user picked, and "0/0" reads as "no
+            // peers at all" instead of "none of the three is up".
+            val configured = synchronized(lock) { active.size }
             val latencies = runtime.filter { it.up && it.latencyMs > 0 }.map { it.latencyMs }
             val avg = if (latencies.isEmpty()) 0.0 else latencies.average()
-            onStats(up, runtime.size, avg, if (uiVisible) rememberErrors(raw, runtime) else raw)
+            val total = maxOf(runtime.size, configured)
+            onStats(up, total, avg, if (uiVisible) rememberErrors(raw, runtime) else raw)
         } catch (t: Throwable) {
             onLog("WARN", "could not read the peer state: ${t.message}")
         }
+    }
+
+    /**
+     * Publishes the live counts without waiting for the next tick. A panel that
+     * just woke has to show the figures of this moment: the loop may be parked
+     * for a minute while the screen is on and the window is hidden.
+     */
+    fun publishNow() {
+        if (!running) return
+        publishLiveStats()
     }
 
     /** Guards the sleep between ticks so a manual refresh can cut it short. */
@@ -364,11 +379,53 @@ class PeerSupervisor(
             }
             restarted++
         }
+        if (restarted < targets.size) {
+            onLog(
+                "WARN",
+                "restart: ${targets.size - restarted} of ${targets.size} link(s) did not come back",
+            )
+        }
         if (restarted > 0) {
             onLog("INFO", "restarted $restarted peer link(s): $reason")
             synchronized(lock) { onActiveChanged(active.toList()) }
-            publishLiveStats()
         }
+        // The counts changed even when every add failed: the panel must not
+        // keep the figures from before the links were dropped.
+        publishLiveStats()
+    }
+
+    /** Both forms of every live URI: the one the node reports and its key. */
+    private fun peerKeys(runtime: List<Runtime>): Set<String> {
+        val keys = HashSet<String>(runtime.size * 2)
+        for (state in runtime) {
+            keys.add(state.uri)
+            keys.add(peerKey(state.uri))
+        }
+        return keys
+    }
+
+    /**
+     * Dials the configured peers the node no longer knows about. Returns true
+     * when at least one link was handed back to the core.
+     */
+    private fun restoreLinks(peers: List<PeerEntry>): Boolean {
+        var restored = 0
+        synchronized(lock) {
+            for (peer in peers) {
+                // The list may have moved while the node was being read: a peer
+                // dropped for the screen must not come back here.
+                if (active.none { it.uri == peer.uri }) continue
+                try {
+                    node.addPeer(peer.uri)
+                    restored++
+                } catch (t: Throwable) {
+                    onLog("WARN", "could not restore ${peer.uri}: ${t.message}")
+                }
+            }
+        }
+        if (restored == 0) return false
+        onLog("WARN", "the node lost $restored peer link(s), dialling them again")
+        return true
     }
 
     /** True once the node reports none of the given links any more. */
@@ -541,8 +598,23 @@ class PeerSupervisor(
     }
 
     private fun tick(settings: Settings) {
-        val raw = node.peersJSON
-        val runtime = parse(raw)
+        var raw = node.peersJSON
+        var runtime = parse(raw)
+        // The node can lose a link while the active list keeps it: a wake
+        // restart whose add was answered with "already configured", a
+        // replacement whose add failed, or a link goroutine that exited after
+        // the removal. The list is what the tunnel is meant to carry, so a
+        // missing link is dialled again instead of leaving the panel at "0/0"
+        // until the next reconnect.
+        val configured = synchronized(lock) { active.toList() }
+        if (configured.isNotEmpty()) {
+            val live = peerKeys(runtime)
+            val missing = configured.filter { it.uri !in live && peerKey(it.uri) !in live }
+            if (missing.isNotEmpty() && restoreLinks(missing)) {
+                raw = node.peersJSON
+                runtime = parse(raw)
+            }
+        }
         // Only a visible window shows the stored error of a recovered peer; a
         // hidden one is content with the raw answer of the node.
         val peersJson = if (uiVisible) rememberErrors(raw, runtime) else raw
@@ -558,7 +630,9 @@ class PeerSupervisor(
         val now = android.os.SystemClock.elapsedRealtime()
 
         val up = runtime.count { it.up }
-        val total = runtime.size
+        // A link the node did not take back is still configured: the panel
+        // shows "0 of 3" instead of the misleading "0/0".
+        val total = maxOf(runtime.size, configured.size)
         val latencies = runtime.filter { it.up && it.latencyMs > 0 }.map { it.latencyMs }
         val avg = if (latencies.isEmpty()) 0.0 else latencies.average()
         lastUp = up

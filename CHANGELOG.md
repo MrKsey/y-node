@@ -4,6 +4,14 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.36] — 2026-11-27
+
+### Fixed
+
+- **The notification panel no longer sticks at "0/0 peers" after a long sleep.** A wake restart of the links could leave the node without any of them while the active list still named them, and the panel published that as "no peers at all"; the supervisor now dials every configured link the node has forgotten, and the total never drops below the configured count, so the worst line is "0 of 3" and it recovers to the live figures by itself.
+- **The peer counters are published as soon as the screen or the window comes back.** The supervisor may be parked for a minute after the wake, so the service reads the node right away instead of waiting for its next tick.
+- **A link restart that cannot bring every link back says so in the log.** The panel is refreshed from the node even when no link came back, instead of keeping the figures from before the restart.
+
 ## [1.5.35] — 2026-11-27
 
 ### Fixed
