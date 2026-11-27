@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gvisor.dev/gvisor/pkg/buffer"
@@ -89,6 +90,16 @@ type internalNet struct {
 
 	fragMu sync.Mutex
 	frags  map[uint32]time.Time
+
+	// Counters for the connection log. A failed exit poll is either "the exit
+	// did not answer" or "the stack never got the answer": without these the
+	// two look the same from the app.
+	recvPackets   atomic.Uint64
+	ownedPackets  atomic.Uint64
+	injectPackets atomic.Uint64
+	dialTries     atomic.Uint64
+	dialFails     atomic.Uint64
+	lastDialErr   atomic.Value
 }
 
 func newInternalNet(
@@ -304,6 +315,7 @@ func (t *internalNet) inject(packet []byte) {
 	})
 	defer pkt.DecRef()
 	t.link.InjectInbound(ipv6.ProtocolNumber, pkt)
+	t.injectPackets.Add(1)
 }
 
 // dialContext opens a connection into Yggdrasil. Used by the HTTP client and by
@@ -333,6 +345,7 @@ func (t *internalNet) dialContext(ctx context.Context, network, address string) 
 	// the real cause.
 	var lastErr error
 	for attempt := 0; attempt < internalDialAttempts; attempt++ {
+		t.dialTries.Add(1)
 		var derr error
 		switch network {
 		case "tcp", "tcp6":
@@ -351,6 +364,8 @@ func (t *internalNet) dialContext(ctx context.Context, network, address string) 
 		default:
 			return nil, fmt.Errorf("unsupported network %q", network)
 		}
+		t.dialFails.Add(1)
+		t.lastDialErr.Store(derr.Error())
 		lastErr = derr
 		if !portFailure(derr) {
 			return nil, derr
@@ -381,6 +396,23 @@ func (t *internalNet) dialContext(ctx context.Context, network, address string) 
 func portFailure(err error) bool {
 	text := err.Error()
 	return strings.Contains(text, "no port available") || strings.Contains(text, "port in use")
+}
+
+// statsLine renders the counters for the connection log. "recv" is every packet
+// the node took from the overlay, "owned" the ones addressed to a connection of
+// this stack, "injected" the ones handed to it. A poll that fails while recv
+// grows and owned does not means the answer never arrived; owned without a
+// matching injected means the stack dropped it.
+func (t *internalNet) statsLine() string {
+	last, _ := t.lastDialErr.Load().(string)
+	if last == "" {
+		last = "none"
+	}
+	return fmt.Sprintf(
+		"stack: recv %d, owned %d, injected %d, dials %d failed %d, last dial error: %s",
+		t.recvPackets.Load(), t.ownedPackets.Load(), t.injectPackets.Load(),
+		t.dialTries.Load(), t.dialFails.Load(), last,
+	)
 }
 
 func (t *internalNet) stop() {

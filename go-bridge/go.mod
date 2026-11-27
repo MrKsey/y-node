@@ -30,3 +30,6 @@ require (
 )
 
 tool golang.org/x/mobile/cmd/gobind
+
+// Local copy with the backpressure deadlock fix in encrypted/netManager.recv.
+replace github.com/Arceliar/ironwood => ./third_party/ironwood

@@ -4,6 +4,13 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.40] — 2026-11-28
+
+### Fixed
+
+- **The overlay no longer freezes under a busy video feed.** Ironwood applied backpressure to a session while its packet reader was waiting for the consumer, and that consumer could be inside a write to the same session: every actor of the core stopped answering, the exit looked dead and the DNS resolvers timed out until the tunnel was rebuilt. The bundled copy of ironwood breaks that cycle, so a long Reels session keeps the core responsive.
+- **A frozen core is named in the log and the tunnel rebuilds itself.** When the state query of the core does not answer within three seconds, the service writes the stacks of the overlay goroutines to the log and recreates the tunnel instead of waiting for the exit health checks to give up, at most once every thirty seconds.
+
 ## [1.5.39] — 2026-11-27
 
 ### Fixed

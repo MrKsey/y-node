@@ -15,8 +15,10 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/yggdrasil-network/yggdrasil-go/src/address"
@@ -135,6 +137,12 @@ type Node struct {
 	tunMTU    int
 	tunV4     net.IP
 	tunGen    uint64
+
+	// coreStatsBusy guards the one diagnostic query of the core that may be in
+	// flight. A core whose actors stopped answering never returns from it, so
+	// the query runs on its own goroutine and a second call reports the stuck
+	// one instead of piling up more.
+	coreStatsBusy atomic.Bool
 }
 
 // NewNode creates a stopped node.
@@ -304,6 +312,9 @@ func (n *Node) Start(cfgJSON string) error {
 	n.subnet = net.IP(subnetIP).String() + "/64"
 	n.pubkey = hex.EncodeToString(pub)
 	n.mu.Unlock()
+	// A query of a previous core may still be blocked in an actor that will
+	// never answer again. The new core gets its own query slot.
+	n.coreStatsBusy.Store(false)
 
 	// The stack the node uses for its own DNS and HTTP requests. It is a
 	// convenience, not part of the tunnel, so a failure only disables the DNS
@@ -448,9 +459,13 @@ func (n *Node) Recv(buf []byte) (int, error) {
 		if read <= 0 {
 			continue
 		}
-		if inner := n.internal(); inner != nil && inner.owns(buf[:read]) {
-			inner.inject(buf[:read])
-			continue
+		if inner := n.internal(); inner != nil {
+			inner.recvPackets.Add(1)
+			if inner.owns(buf[:read]) {
+				inner.ownedPackets.Add(1)
+				inner.inject(buf[:read])
+				continue
+			}
 		}
 		return read, nil
 	}
@@ -464,6 +479,187 @@ func (n *Node) internal() *internalNet {
 		return nil
 	}
 	return n.inner
+}
+
+// InternalStats describes the userspace stack that carries the node's own
+// connections. The app reads it when the exit stops answering: the counters
+// tell a stack that no longer receives its packets from one that cannot open a
+// socket, which look the same from the outside.
+func (n *Node) InternalStats() string {
+	inner := n.internal()
+	if inner == nil {
+		return "stack: not running"
+	}
+	return inner.statsLine()
+}
+
+// coreStatsTimeout bounds the state query. GetPeers, GetSessions and GetPaths
+// run through the phony actors of the core; a deadlocked actor blocks them
+// forever, and that is itself the answer the log needs.
+const coreStatsTimeout = 3 * time.Second
+
+// CoreStats describes the overlay from the core's own point of view: the links
+// with their byte counters, the sessions, and the path to the exit address the
+// app names. The exit health report logs it when the exit stops answering, so
+// the next report can separate three cases that look identical in the app:
+// the links stopped carrying bytes, the session with the exit stopped
+// receiving, or the core stopped answering at all.
+func (n *Node) CoreStats(exitAddress string) string {
+	n.mu.Lock()
+	c := n.core
+	running := n.running
+	n.mu.Unlock()
+	if !running || c == nil {
+		return "core: not running"
+	}
+	if !n.coreStatsBusy.CompareAndSwap(false, true) {
+		return "core: the previous state query is still running"
+	}
+	var exit net.IP
+	if parsed := net.ParseIP(strings.TrimSpace(exitAddress)); parsed != nil {
+		exit = parsed.To16()
+	}
+	done := make(chan string, 1)
+	go func() {
+		defer n.coreStatsBusy.Store(false)
+		done <- describeCore(c, exit)
+	}()
+	select {
+	case line := <-done:
+		return line
+	case <-time.After(coreStatsTimeout):
+		return "core: the state query timed out, the core does not answer"
+	}
+}
+
+// goroutineDumpLimit bounds the dump: the log is a file on the phone and only
+// the stacks that can hold the core matter here.
+const goroutineDumpLimit = 128 << 10
+
+// GoroutineDump returns the stacks of the goroutines that belong to the
+// overlay: the core, the library and this bridge. The app calls it when the
+// state query of the core timed out, which means some actor stopped answering;
+// the stack of that goroutine names the exact call it is stuck in.
+func (n *Node) GoroutineDump() string {
+	buf := make([]byte, 1<<20)
+	buf = buf[:runtime.Stack(buf, true)]
+	var b strings.Builder
+	for _, block := range strings.Split(string(buf), "\n\n") {
+		if !strings.Contains(block, "yggdrasil-network") &&
+			!strings.Contains(block, "Arceliar/ironwood") &&
+			!strings.Contains(block, "Arceliar/phony") &&
+			!strings.Contains(block, "yggnode.") {
+			continue
+		}
+		if b.Len()+len(block)+2 > goroutineDumpLimit {
+			b.WriteString("... the dump was cut here\n")
+			break
+		}
+		b.WriteString(block)
+		b.WriteString("\n\n")
+	}
+	if b.Len() == 0 {
+		return "dump: no overlay goroutine is running"
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// describeCore renders one compact line. Only the numbers that change while a
+// connection is supposed to flow are printed: a link whose rx stays still while
+// the exit keeps sending points at the link, a link that keeps receiving while
+// the session to the exit shows nothing points at the session.
+func describeCore(c *core.Core, exit net.IP) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "core: routes %d, tree %d", c.GetSelf().RoutingEntries, len(c.GetTree()))
+	peers := c.GetPeers()
+	up := 0
+	for _, p := range peers {
+		if p.Up {
+			up++
+		}
+	}
+	fmt.Fprintf(&b, ", peers %d up %d [", len(peers), up)
+	first := true
+	for _, p := range peers {
+		if !p.Up {
+			continue
+		}
+		if !first {
+			b.WriteString(" | ")
+		}
+		first = false
+		fmt.Fprintf(&b, "%s rx %s tx %s %s",
+			peerLabel(p.URI), humanBytes(p.RXBytes), humanBytes(p.TXBytes),
+			p.Latency.Round(time.Millisecond))
+	}
+	b.WriteString("]")
+
+	sessions := c.GetSessions()
+	exitRX, exitTX := uint64(0), uint64(0)
+	exitUptime := time.Duration(0)
+	haveExit := false
+	type sessionLine struct {
+		key    ed25519.PublicKey
+		rx, tx uint64
+		uptime time.Duration
+	}
+	lines := make([]sessionLine, 0, len(sessions))
+	for _, s := range sessions {
+		lines = append(lines, sessionLine{key: s.Key, rx: s.RXBytes, tx: s.TXBytes, uptime: s.Uptime})
+		if exit != nil && net.IP(address.AddrForKey(s.Key)[:]).Equal(exit) {
+			haveExit = true
+			exitRX, exitTX, exitUptime = s.RXBytes, s.TXBytes, s.Uptime
+		}
+	}
+	fmt.Fprintf(&b, ", sessions %d", len(sessions))
+	if exit != nil {
+		if haveExit {
+			fmt.Fprintf(&b, ", exit session rx %s tx %s %s",
+				humanBytes(exitRX), humanBytes(exitTX), exitUptime.Round(time.Second))
+		} else {
+			b.WriteString(", no exit session")
+		}
+	}
+	paths := c.GetPaths()
+	exitPath := -1
+	for _, p := range paths {
+		if exit != nil && net.IP(address.AddrForKey(p.Key)[:]).Equal(exit) {
+			exitPath = len(p.Path)
+		}
+	}
+	fmt.Fprintf(&b, ", paths %d", len(paths))
+	if exit != nil {
+		if exitPath >= 0 {
+			fmt.Fprintf(&b, ", exit path %d hop(s)", exitPath)
+		} else {
+			b.WriteString(", no exit path")
+		}
+	}
+	return b.String()
+}
+
+// peerLabel keeps one link short: the host and port, or the URI when it does
+// not parse. The key in the query string of a websocket URI is noise here.
+func peerLabel(uri string) string {
+	parsed, err := url.Parse(uri)
+	if err != nil || parsed.Host == "" {
+		return uri
+	}
+	return parsed.Host
+}
+
+// humanBytes prints a counter in the unit a person reads at a glance.
+func humanBytes(n uint64) string {
+	switch {
+	case n >= 1<<30:
+		return fmt.Sprintf("%.1fGB", float64(n)/(1<<30))
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1fMB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.1fKB", float64(n)/(1<<10))
+	default:
+		return fmt.Sprintf("%dB", n)
+	}
 }
 
 // tunSettings are the pieces the Kotlin side provides to the forwarder. They

@@ -111,6 +111,11 @@ class YggVpnService : VpnService() {
          *  second lets the old sockets close and the radio settle. */
         private const val REBUILD_DELAY_MS = 1_000L
 
+        /** Minimum gap between two rebuilds that were caused by a silent core.
+         *  A stalled core is rare, but a rebuild loop would hide a real network
+         *  problem and drain the battery. */
+        private const val CORE_REBUILD_MIN_MS = 30_000L
+
         /** Long enough for one round of Go timers to run, short enough not to
          *  keep the CPU up for a noticeable share of the interval. */
         private const val SCREEN_OFF_WAKE_LOCK_MS = 4_000L
@@ -503,6 +508,15 @@ class YggVpnService : VpnService() {
      *  silent poll rebuilds the whole tunnel and resets the ladder. */
     private var exitHealStage = 0
 
+    /** True once the core state was logged for the current exit session, so
+     *  the outage report has a baseline to compare its counters against. */
+    private var exitBaselineLogged = false
+
+    /** When the tunnel was last rebuilt because the core stopped answering,
+     *  elapsed-realtime millis. A rebuild is heavy: a core that keeps stalling
+     *  must not turn into a rebuild loop. */
+    private var lastCoreRebuildAt = 0L
+
     /** How many nodes route their traffic through this one. Read from the
      *  spanning tree on the stats tick and shown in Diagnostics. */
     private var transitPeers = 0
@@ -831,6 +845,7 @@ class YggVpnService : VpnService() {
         // another one a minute later.
         exitUnreachableCount = 0
         exitHealStage = 0
+        exitBaselineLogged = false
         startExitWatch()
         goForeground(VpnState.STATUS_CONNECTED, "")
         if (!screenInteractive) {
@@ -2004,7 +2019,10 @@ class YggVpnService : VpnService() {
      */
     private fun noteExitHealth(raw: String) {
         if (raw.isBlank() || !isActive || stopping) return
-        val state = try {
+        var state = ""
+        var reason = ""
+        var exitAddress = ""
+        try {
             val status = JSONObject(raw)
             val profiles = status.optJSONArray("profiles") ?: return
             val activeId = status.optString("activeId")
@@ -2017,7 +2035,12 @@ class YggVpnService : VpnService() {
                     break
                 }
             }
-            active?.optString("state").orEmpty()
+            state = active?.optString("state").orEmpty()
+            // The bridge names the failing step (dial, greeting, status API).
+            // Without it every outage reads as "stopped answering", which is
+            // the symptom, not the cause.
+            reason = active?.optString("error").orEmpty()
+            exitAddress = active?.optString("address").orEmpty()
         } catch (_: Exception) {
             return
         }
@@ -2025,6 +2048,12 @@ class YggVpnService : VpnService() {
             "online" -> {
                 if (exitUnreachableCount > 0 || exitHealStage > 0) {
                     ConnectionLog.append("INFO", "the exit node answers again")
+                    ConnectionLog.append("INFO", coreStats(exitAddress))
+                } else if (!exitBaselineLogged) {
+                    // The counters before anything goes wrong: the outage
+                    // report is only readable next to them.
+                    exitBaselineLogged = true
+                    ConnectionLog.append("INFO", coreStats(exitAddress))
                 }
                 exitUnreachableCount = 0
                 exitHealStage = 0
@@ -2037,10 +2066,43 @@ class YggVpnService : VpnService() {
                     // One line per outage with every link and its overlay
                     // state: the next report then shows whether the exit link
                     // itself went silent or the route through another peer did.
+                    val detail = if (reason.isBlank()) "" else " ($reason)"
                     ConnectionLog.append(
                         "WARN",
-                        "the exit node stopped answering, links: ${peerSummary()}",
+                        "the exit node stopped answering$detail, links: ${peerSummary()}",
                     )
+                    // The counters of the node's own stack tell whether the
+                    // answer never arrived or never left the phone.
+                    ConnectionLog.append("WARN", internalStackStats())
+                    // The core's own view: a link that stopped receiving, a
+                    // session that stopped receiving, or a core that stopped
+                    // answering at all are three different failures.
+                    val core = coreStats(exitAddress)
+                    ConnectionLog.append("WARN", core)
+                    // The state query is local: it needs no network, so a
+                    // timeout means the actors of the core itself stopped
+                    // answering. Redialling links cannot help then, and every
+                    // second of the ladder is a second of the apps falling back
+                    // to the direct connection: rebuild the node right away.
+                    if (core.contains("does not answer")) {
+                        val now = SystemClock.elapsedRealtime()
+                        if (now - lastCoreRebuildAt < CORE_REBUILD_MIN_MS) {
+                            ConnectionLog.append(
+                                "WARN",
+                                "the core of the node stopped answering again, keeping the tunnel",
+                            )
+                        } else {
+                            lastCoreRebuildAt = now
+                            ConnectionLog.append(
+                                "WARN",
+                                "the core of the node stopped answering, rebuilding the tunnel",
+                            )
+                            exitUnreachableCount = 0
+                            exitHealStage = 0
+                            worker.execute { rebuildTunnel("the core stopped answering") }
+                            return
+                        }
+                    }
                 }
                 exitUnreachableCount++
                 // The first step waits for a second failed poll, because one can
@@ -2277,6 +2339,44 @@ class YggVpnService : VpnService() {
         } catch (_: Throwable) {
             ""
         }
+    }
+
+    /**
+     * Counters of the node's own userspace stack. The stack carries the exit
+     * health poll and the DNS check, so its figures separate a lost answer from
+     * a phone that never sent the request.
+     */
+    private fun internalStackStats(): String {
+        return try {
+            node.internalStats().orEmpty()
+        } catch (t: Throwable) {
+            "stack: unavailable (${t.message})"
+        }
+    }
+
+    /**
+     * The core's view of the overlay for one exit address: links with their
+     * byte counters, the session and the path to that exit. A log line from
+     * the Go side, bounded there by a timeout, so a core whose actors stopped
+     * answering reports itself instead of blocking this thread.
+     */
+    private fun coreStats(exitAddress: String): String {
+        val line = try {
+            node.coreStats(exitAddress).orEmpty()
+        } catch (t: Throwable) {
+            "core: unavailable (${t.message})"
+        }
+        // A timed-out query means some actor of the core stopped answering:
+        // the stacks of the overlay goroutines then name the call it is stuck
+        // in, which is the only way to find the deadlock from a phone log.
+        if (line.contains("does not answer")) {
+            try {
+                ConnectionLog.append("WARN", node.goroutineDump().orEmpty())
+            } catch (t: Throwable) {
+                ConnectionLog.append("WARN", "dump: unavailable (${t.message})")
+            }
+        }
+        return line
     }
 
     /**
