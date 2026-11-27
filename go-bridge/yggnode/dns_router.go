@@ -37,15 +37,26 @@ type dnsRouter struct {
 	inner  *internalNet
 	direct *directDialer
 	log    *goLogger
+	// links names the state of every peer link for the log. A failed in-network
+	// lookup is the first sign that the overlay lost its route, and the link
+	// states say whether one link went silent or the whole tree is down.
+	links func() string
 }
 
-func newDNSRouter(exit *exitManager, inner *internalNet, direct *directDialer, log *goLogger) *dnsRouter {
+func newDNSRouter(
+	exit *exitManager,
+	inner *internalNet,
+	direct *directDialer,
+	log *goLogger,
+	links func() string,
+) *dnsRouter {
 	return &dnsRouter{
 		cache:  make(map[string]dnsCacheEntry),
 		exit:   exit,
 		inner:  inner,
 		direct: direct,
 		log:    log,
+		links:  links,
 	}
 }
 
@@ -153,7 +164,11 @@ func (r *dnsRouter) resolveYgg(ctx context.Context, query []byte) []byte {
 	}
 	stageCtx, cancel := context.WithTimeout(ctx, dnsStageTimeout)
 	defer cancel()
-	return raceResolvers(stageCtx, cfg.YggDNS, query, r.queryInner, r.log, "ygg")
+	response := raceResolvers(stageCtx, cfg.YggDNS, query, r.queryInner, r.log, "ygg")
+	if !dnsUsable(response) && r.links != nil {
+		r.log.emit("warn", "dns: no in-network resolver answered, links: %s", r.links())
+	}
+	return response
 }
 
 func (r *dnsRouter) resolveLocal(ctx context.Context, query []byte) []byte {

@@ -986,8 +986,11 @@ class PeerSupervisor(
         /** How long a link may report `up` with no overlay latency before it is
          *  treated as dead. The core keeps the TCP socket open after ironwood
          *  drops the peer, so the link looks healthy while nothing is routed
-         *  through it; ironwood itself measures a live peer every second. */
-        private const val OVERLAY_SILENT_MS = 30 * 1000L
+         *  through it; ironwood itself measures a live peer every second. Ten
+         *  seconds is long enough to ride out a lost packet and short enough
+         *  that the whole overlay — the Yggdrasil resolvers included — does not
+         *  stay blackholed behind one silent link. */
+        private const val OVERLAY_SILENT_MS = 10 * 1000L
 
         /** The same silence on the pinned exit link. It carries the exit and is
          *  usually the tree parent, so every second of it is a blackhole for

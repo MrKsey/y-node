@@ -4,6 +4,13 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.39] — 2026-11-27
+
+### Fixed
+
+- **A silent public link is swapped after ten seconds instead of thirty.** The in-network resolvers of the DNS list travel over the same overlay as the exit: when one link kept its socket open while its session was gone, every Yggdrasil address behind it stopped answering at once, and the resolvers looked dead. The shorter window replaces such a link before a browser gives up on its lookup.
+- **A failed in-network lookup names the state of every link in the log.** The line `dns: no in-network resolver answered, links: …` shows whether one link went silent or every link is down, so the next report points at the link instead of the resolver.
+
 ## [1.5.38] — 2026-11-27
 
 ### Fixed

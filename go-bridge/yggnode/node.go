@@ -555,7 +555,7 @@ func (n *Node) buildForwarder(settings tunSettings, rawExit string) (*tun2socks,
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	router := newDNSRouter(manager, inner, direct, n.logger)
+	router := newDNSRouter(manager, inner, direct, n.logger, n.linksSummary)
 	t, err := newTun2Socks(settings.mtu, settings.v4, settings.writer, manager, router, n.logger)
 	if err != nil {
 		return nil, nil, nil, err
@@ -855,6 +855,33 @@ func (n *Node) GetPeersJSON() string {
 		return "[]"
 	}
 	return string(b)
+}
+
+// linksSummary names every peer link with its state and overlay latency, short
+// enough for one log line. A failed in-network DNS lookup is the first sign
+// that the overlay lost its route, and this line says whether one link went
+// silent or every link is down.
+func (n *Node) linksSummary() string {
+	n.mu.Lock()
+	c := n.core
+	running := n.running
+	n.mu.Unlock()
+	if !running || c == nil {
+		return "the node is not running"
+	}
+	peers := c.GetPeers()
+	if len(peers) == 0 {
+		return "no links"
+	}
+	parts := make([]string, 0, len(peers))
+	for _, p := range peers {
+		state := "down"
+		if p.Up {
+			state = "up"
+		}
+		parts = append(parts, fmt.Sprintf("%s %s %dms", p.URI, state, p.Latency.Milliseconds()))
+	}
+	return strings.Join(parts, "; ")
 }
 
 // GetTransitCount returns how many nodes chose this one as their parent in the

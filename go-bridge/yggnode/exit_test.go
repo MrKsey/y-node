@@ -302,7 +302,7 @@ func TestIsLocalDestination(t *testing.T) {
 
 func TestDNSNameClassification(t *testing.T) {
 	manager := &exitManager{cfg: exitConfig{LocalDNS: true}}
-	router := newDNSRouter(manager, nil, nil, &goLogger{})
+	router := newDNSRouter(manager, nil, nil, &goLogger{}, nil)
 
 	if !isYggName("rutor.ygg") || !isYggName("YGG") {
 		t.Error("ygg names were not recognised")
