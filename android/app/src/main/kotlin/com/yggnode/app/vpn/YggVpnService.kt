@@ -125,10 +125,12 @@ class YggVpnService : VpnService() {
         private const val DATA_ACTIVITY_MIN_BYTES = 16 * 1024
 
         /** How often the figures in the panel are refreshed while the window is
-         *  hidden. The screen is on, so the notification is visible, but a
-         *  byte counter does not need a per-second redraw: every post rebuilds
-         *  the remote views of the panel. */
-        private const val HIDDEN_STATS_INTERVAL_MS = 30_000L
+         *  hidden. The screen is on, so the notification is visible, and a
+         *  download that ran for minutes used to show the same number for half
+         *  a minute, which read as a frozen counter. Five seconds is what the
+         *  panel of a download manager shows; a post still happens only when the
+         *  text changed, so an idle tunnel costs nothing. */
+        private const val HIDDEN_STATS_INTERVAL_MS = 5_000L
 
         /** How often the peer links are read while the window is hidden but the
          *  screen is on. The data path never waits for the supervisor: it only
@@ -1811,8 +1813,10 @@ class YggVpnService : VpnService() {
                     !screenInteractive -> 0L
                     visible && !settings.energySaving -> 1_000L
                     // Hidden window: the panel is the only consumer and it is
-                    // redrawn at `HIDDEN_STATS_INTERVAL_MS` anyway.
-                    else -> 15_000L
+                    // redrawn at `HIDDEN_STATS_INTERVAL_MS` anyway. The tick has
+                    // to be no slower than that, otherwise the counters in the
+                    // panel freeze between two posts.
+                    else -> HIDDEN_STATS_INTERVAL_MS
                 }
                 synchronized(statsSleeper) {
                     if (!isActive || stopping) return@Thread
