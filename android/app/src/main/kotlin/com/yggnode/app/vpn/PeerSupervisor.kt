@@ -320,17 +320,31 @@ class PeerSupervisor(
      * it exits, and an add for a link that is still there answers "already
      * configured" without dialling. The links are therefore dropped first, the
      * node is polled until it forgets them, and only then are they added back.
+     *
+     * A wake restart passes [skipHealthy]: a link whose overlay session still
+     * answers was not damaged by the sleep, and dropping it would break a
+     * working route for the duration of a fresh handshake. Only a link that is
+     * down, or up with no measured latency (the core kept the socket while
+     * ironwood dropped the session), needs a new dial.
      */
-    fun restartLinks(peers: List<PeerEntry>, reason: String) {
+    fun restartLinks(peers: List<PeerEntry>, reason: String, skipHealthy: Boolean = false) {
         val now = android.os.SystemClock.elapsedRealtime()
+        val healthy = if (skipHealthy) liveHealthyKeys() else emptySet()
         // A link younger than the fresh window was dialled after the sleep, so
         // its socket is new: the peers of the "exit node only" mode are
         // restored right before this call and must not be cancelled again.
         val targets = peers.filter { peer ->
             val born = synchronized(lock) { addedAt[peer.uri] } ?: 0L
-            born == 0L || now - born >= LINK_FRESH_MS
+            if (born != 0L && now - born < LINK_FRESH_MS) return@filter false
+            if (skipHealthy && (peer.uri in healthy || peerKey(peer.uri) in healthy)) {
+                return@filter false
+            }
+            true
         }
-        if (targets.isEmpty()) return
+        if (targets.isEmpty()) {
+            if (skipHealthy) publishLiveStats()
+            return
+        }
         for (peer in targets) {
             try {
                 node.removePeer(peer.uri)
@@ -392,6 +406,22 @@ class PeerSupervisor(
         // The counts changed even when every add failed: the panel must not
         // keep the figures from before the links were dropped.
         publishLiveStats()
+    }
+
+    /** Links the node reports as up with a live overlay session. */
+    private fun liveHealthyKeys(): Set<String> {
+        return try {
+            val healthy = HashSet<String>()
+            for (state in parse(node.peersJSON)) {
+                if (!state.up || state.latencyMs <= 0.0) continue
+                healthy.add(state.uri)
+                healthy.add(peerKey(state.uri))
+            }
+            healthy
+        } catch (t: Throwable) {
+            onLog("WARN", "could not read the live links: ${t.message}")
+            emptySet()
+        }
     }
 
     /** Both forms of every live URI: the one the node reports and its key. */

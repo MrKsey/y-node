@@ -4,6 +4,13 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.37] — 2026-11-27
+
+### Fixed
+
+- **Waking the phone no longer shows "0/4 peers" while the exit node is still working.** The wake path recreated every link older than ten seconds, and the pinned exit link was always one of them: for the length of its fresh handshake the panel had no live link to report, even though the route was fine a moment earlier. A link whose overlay session still answers is now left alone; only a link that is down or has lost its overlay session is redialled.
+- **The panel reports the exit link as up right after the screen comes back.** The "Keep only exit node with the screen off" mode returns the public peers on wake, so the total becomes four again; the exit link now stays connected through the wake, which makes the first line "1/4" and it climbs to "4/4" as the public peers finish their handshakes instead of starting from "0/4".
+
 ## [1.5.36] — 2026-11-27
 
 ### Fixed

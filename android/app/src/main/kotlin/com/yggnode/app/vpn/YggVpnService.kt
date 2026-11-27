@@ -1537,7 +1537,11 @@ class YggVpnService : VpnService() {
                 // it again.
                 val kept = sup.currentPeers()
                 sup.setExitOnly(false)
-                sup.restartLinks(kept, reason)
+                // A link that still answers the overlay was not damaged by the
+                // sleep. Dropping it would put the panel at "0/4" and cut a
+                // working route for the length of a fresh handshake, which is
+                // exactly what a wake used to do to the pinned exit link.
+                sup.restartLinks(kept, reason, skipHealthy = true)
             }
             requestExitCheck()
         }
