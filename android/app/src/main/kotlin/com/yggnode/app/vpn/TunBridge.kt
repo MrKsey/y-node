@@ -6,15 +6,22 @@ import yggnode.Protector
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.InetAddress
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Moves IP packets between the Android TUN descriptor and the Yggdrasil node.
  *
- * Two threads, each with one reusable buffer: reading the TUN and handing the
- * packet to Go, and pulling a packet out of Go and writing it to the TUN. No
- * allocation happens per packet, which matters because the tunnel runs for hours
- * on a phone.
+ * Two reader threads, each with one reusable buffer: reading the TUN and handing
+ * the packet to Go, and pulling a packet out of Go. Both directions share one
+ * writer thread that owns the descriptor.
+ *
+ * The writer is separate on purpose. A TUN write blocks when the kernel queue is
+ * full, and while it is blocked nobody calls Recv: the node's own connections —
+ * the exit health poll among them — stop getting answers and the whole tunnel
+ * looks dead although every link still reports `up`. The writer therefore takes
+ * packets from a bounded queue and drops them when it cannot keep up, so a slow
+ * moment costs a few packets instead of the data path.
  *
  * Packets addressed into Yggdrasil go to the node. Everything else is ordinary
  * internet traffic of the apps in the VPN allow list: Android never lets those
@@ -22,8 +29,8 @@ import java.util.concurrent.atomic.AtomicLong
  * (tun2socks) that forwards it through a protected socket.
  *
  * Stopping is deliberately blunt: the node is stopped first, which unblocks the
- * pending Recv, then the streams are closed, which unblocks the pending read.
- * Both threads then see a closed tunnel and exit.
+ * pending Recv, then the streams are closed, which unblocks the pending read and
+ * the pending write. Every thread then sees a closed tunnel and exits.
  */
 class TunBridge(
     private val node: Node,
@@ -41,8 +48,8 @@ class TunBridge(
     private val rx = AtomicLong(0)
     private val tx = AtomicLong(0)
 
-    /** The first few DNS queries of a session are logged: a `.ygg` name that does
-     *  not resolve is the most common support question and the source address of
+    /** The first few DNS queries of a session are logged: a `.ygg` name that
+     *  does not resolve is the most common support question and the source address of
      *  the query explains most of them. */
     private val dnsQueries = AtomicLong(0)
     private val dnsReplies = AtomicLong(0)
@@ -56,26 +63,23 @@ class TunBridge(
     @Volatile
     private var forwarding = false
 
-    /** The two writers share one descriptor, so writes are serialised. */
-    private val writeLock = Any()
+    /** Packets waiting for the writer. A full queue drops the packet: the
+     *  tunnel is a best-effort pipe, and waiting for room would stall Recv. */
+    private val outbound = ArrayBlockingQueue<ByteArray>(WRITE_QUEUE)
 
     private var upstream: Thread? = null
     private var downstream: Thread? = null
+    private var writer: Thread? = null
 
     /**
-     * Writes one packet back into the tunnel. Called by the Go stack on its own
-     * thread; the bytes are copied into the descriptor before returning.
+     * Queues one packet for the tunnel. Called by the Go stack on its own
+     * thread; the queue holds it only until the writer thread takes it, and the
+     * array is a fresh copy made by the binding, so nothing is reused here.
      */
     private val packetWriter = object : PacketWriter {
         override fun writePacket(packet: ByteArray): Boolean {
-            return try {
-                synchronized(writeLock) { output.write(packet) }
-                rx.addAndGet(packet.size.toLong())
-                onActivity(packet.size)
-                true
-            } catch (_: Throwable) {
-                false
-            }
+            if (!running) return false
+            return outbound.offer(packet)
         }
     }
 
@@ -107,6 +111,10 @@ class TunBridge(
             start()
         }
         downstream = Thread({ pumpDownstream() }, "ygg-tun-down").apply {
+            priority = Thread.NORM_PRIORITY + 1
+            start()
+        }
+        writer = Thread({ pumpWriter() }, "ygg-tun-write").apply {
             priority = Thread.NORM_PRIORITY + 1
             start()
         }
@@ -187,15 +195,36 @@ class TunBridge(
             while (running) {
                 val n = node.recv(buf)
                 if (n <= 0) continue
-                noteDnsReply(buf, n.toInt())
-                synchronized(writeLock) { output.write(buf, 0, n.toInt()) }
-                rx.addAndGet(n)
-                onActivity(n.toInt())
+                val length = n.toInt()
+                noteDnsReply(buf, length)
+                // The buffer is reused, so the writer gets its own copy. A full
+                // queue means the descriptor is behind: drop instead of waiting,
+                // because this thread must keep calling Recv.
+                outbound.offer(buf.copyOf(length))
             }
         } catch (t: Throwable) {
             if (running) onError(t)
         }
         onLog("INFO", "downstream loop finished")
+    }
+
+    /** Writes queued packets into the tunnel, one blocking write at a time. */
+    private fun pumpWriter() {
+        while (running) {
+            val packet = try {
+                outbound.take()
+            } catch (_: InterruptedException) {
+                continue
+            }
+            try {
+                output.write(packet)
+            } catch (t: Throwable) {
+                if (running) onError(t)
+                return
+            }
+            rx.addAndGet(packet.size.toLong())
+            onActivity(packet.size)
+        }
     }
 
     fun rxBytes(): Long = rx.get()
@@ -386,12 +415,19 @@ class TunBridge(
         }
         upstream?.interrupt()
         downstream?.interrupt()
+        writer?.interrupt()
         upstream = null
         downstream = null
+        writer = null
     }
 
     private companion object {
         const val MAX_DNS_LOGS = 4
         const val MAX_YGG_DNS_LOGS = 20
+
+        /** Packets waiting for the descriptor. Two hundred is a fraction of a
+         *  second of traffic at tunnel speed and a few hundred kilobytes of
+         *  memory, which is the right trade for a phone. */
+        const val WRITE_QUEUE = 200
     }
 }

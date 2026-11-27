@@ -102,6 +102,15 @@ class YggVpnService : VpnService() {
         private const val EXIT_LINK_RESTART_MS = 60_000L
         private const val EXIT_LINK_RESTART_MAX_MS = 300_000L
 
+        /** Wait between the steps of the exit recovery ladder. Each step is
+         *  followed by one fresh health poll: a link that was just dialled has
+         *  to be given a moment to handshake before the next step is blamed. */
+        private const val EXIT_HEAL_STAGE_MS = 20_000L
+
+        /** How long a rebuild waits before the node is started again. One
+         *  second lets the old sockets close and the radio settle. */
+        private const val REBUILD_DELAY_MS = 1_000L
+
         /** Long enough for one round of Go timers to run, short enough not to
          *  keep the CPU up for a noticeable share of the interval. */
         private const val SCREEN_OFF_WAKE_LOCK_MS = 4_000L
@@ -487,6 +496,11 @@ class YggVpnService : VpnService() {
     /** The wait after an exit link restart, doubled while the exit stays down. */
     private var exitLinkRestartBackoffMs = EXIT_LINK_RESTART_MS
 
+    /** How far the exit recovery ladder has gone: 0 nothing tried yet, 1 the
+     *  pinned link was recreated, 2 every active link was recreated. The next
+     *  silent poll rebuilds the whole tunnel and resets the ladder. */
+    private var exitHealStage = 0
+
     /** How many nodes route their traffic through this one. Read from the
      *  spanning tree on the stats tick and shown in Diagnostics. */
     private var transitPeers = 0
@@ -809,6 +823,12 @@ class YggVpnService : VpnService() {
             )
         }
         startStats()
+        // A new node has new links: the exit recovery ladder of the previous
+        // tunnel says nothing about this one. The wait before the next step is
+        // kept on purpose: a rebuild that did not help must not be followed by
+        // another one a minute later.
+        exitUnreachableCount = 0
+        exitHealStage = 0
         startExitWatch()
         goForeground(VpnState.STATUS_CONNECTED, "")
         if (!screenInteractive) {
@@ -1277,16 +1297,29 @@ class YggVpnService : VpnService() {
 
     private fun onDataPathFailure(t: Throwable) {
         if (stopping) return
-        // A closed descriptor or a stopped node during teardown is expected; a
-        // failure while the tunnel should be up means it has to be rebuilt.
-        if (!node.isRunning) {
-            ConnectionLog.append("WARN", "node stopped unexpectedly, rebuilding")
-            VpnState.setStatus(VpnState.STATUS_RECONNECTING, t.message)
-            teardown(keepState = true)
-            mainHandler.postDelayed({
-                if (!stopping) worker.execute { handleConnect() }
-            }, 1_000L)
-        }
+        // The two bridge threads carry every packet in both directions. Once
+        // one of them is gone the tunnel is dead even though the node and its
+        // links still look healthy: nothing reads the node any more, so even
+        // the exit health poll starves and the app reports the exit as
+        // unreachable. A fresh node, descriptor and stack is the only way back.
+        ConnectionLog.append("WARN", "data path stopped (${t.message}), rebuilding")
+        rebuildTunnel("the data path stopped")
+    }
+
+    /**
+     * Tears the tunnel down and builds it again from the stored settings, the
+     * way the user does it by hand. Used when the data path died or when the
+     * exit stayed silent after every link was redialled: both leave the node
+     * and its links looking healthy while nothing gets through.
+     */
+    private fun rebuildTunnel(reason: String) {
+        if (!isActive || stopping) return
+        ConnectionLog.append("SERVICE", "rebuilding the tunnel: $reason")
+        VpnState.setStatus(VpnState.STATUS_RECONNECTING, reason)
+        teardown(keepState = true)
+        mainHandler.postDelayed({
+            if (!stopping) worker.execute { handleConnect() }
+        }, REBUILD_DELAY_MS)
     }
 
     // ------------------------------------------------------------------
@@ -1975,35 +2008,86 @@ class YggVpnService : VpnService() {
         }
         when (state) {
             "online" -> {
-                if (exitUnreachableCount > 0) {
+                if (exitUnreachableCount > 0 || exitHealStage > 0) {
                     ConnectionLog.append("INFO", "the exit node answers again")
                 }
                 exitUnreachableCount = 0
+                exitHealStage = 0
                 exitLinkRestartBackoffMs = EXIT_LINK_RESTART_MS
             }
             // "denied" means the exit answered and refused this client: its
             // link is fine, so recreating it would only cost a handshake.
             "unreachable" -> {
                 exitUnreachableCount++
-                if (exitUnreachableCount < EXIT_UNREACHABLE_BEFORE_RESTART) return
+                // The first step waits for a second failed poll, because one can
+                // be a hiccup. After a step has run, a single silent poll is
+                // enough: that poll was already given the stage pause.
+                if (exitHealStage == 0 && exitUnreachableCount < EXIT_UNREACHABLE_BEFORE_RESTART) {
+                    return
+                }
                 val now = SystemClock.elapsedRealtime()
                 if (now < nextExitLinkRestartAt) return
-                nextExitLinkRestartAt = now + exitLinkRestartBackoffMs
-                exitLinkRestartBackoffMs =
-                    minOf(exitLinkRestartBackoffMs * 2, EXIT_LINK_RESTART_MAX_MS)
                 exitUnreachableCount = 0
-                ConnectionLog.append(
-                    "WARN",
-                    "the exit node did not answer, recreating its link",
-                )
-                worker.execute {
-                    val sup = supervisor ?: return@execute
-                    val pinned = sup.currentPeers().filter { it.pinned }
-                    if (pinned.isEmpty()) return@execute
-                    sup.restartLinks(pinned, "the exit node stopped answering")
+                when (exitHealStage) {
+                    0 -> {
+                        exitHealStage = 1
+                        nextExitLinkRestartAt = now + EXIT_HEAL_STAGE_MS
+                        ConnectionLog.append(
+                            "WARN",
+                            "the exit node did not answer, recreating its link",
+                        )
+                        worker.execute {
+                            val sup = supervisor ?: return@execute
+                            val pinned = sup.currentPeers().filter { it.pinned }
+                            if (pinned.isEmpty()) return@execute
+                            sup.restartLinks(pinned, "the exit node stopped answering")
+                        }
+                        requestExitCheckLater()
+                    }
+                    1 -> {
+                        exitHealStage = 2
+                        nextExitLinkRestartAt = now + EXIT_HEAL_STAGE_MS
+                        ConnectionLog.append(
+                            "WARN",
+                            "the exit node is still silent, recreating every peer link",
+                        )
+                        // The route to the exit is not necessarily carried by
+                        // the pinned link: the core picks a parent from the whole
+                        // peer set, and a dead socket of any of them blackholes
+                        // the exit while still reporting "up". Recreating all of
+                        // them is the only way to be sure the path is fresh.
+                        worker.execute {
+                            val sup = supervisor ?: return@execute
+                            sup.restartLinks(sup.currentPeers(), "the exit node is still silent")
+                        }
+                        requestExitCheckLater()
+                    }
+                    else -> {
+                        exitHealStage = 0
+                        nextExitLinkRestartAt = now + exitLinkRestartBackoffMs
+                        exitLinkRestartBackoffMs =
+                            minOf(exitLinkRestartBackoffMs * 2, EXIT_LINK_RESTART_MAX_MS)
+                        ConnectionLog.append(
+                            "WARN",
+                            "the exit node is still silent after the link restart, rebuilding the tunnel",
+                        )
+                        // A fresh node, descriptor and forwarding stack is what
+                        // the user did by hand: stop and start the tunnel. The
+                        // links were already redialled, so the stuck piece is
+                        // below them.
+                        worker.execute { rebuildTunnel("the exit node is unreachable") }
+                    }
                 }
             }
         }
+    }
+
+    /** Asks for one health poll after the stage pause of the recovery ladder. */
+    private fun requestExitCheckLater() {
+        mainHandler.postDelayed(
+            { if (isActive && !stopping) requestExitCheck() },
+            EXIT_HEAL_STAGE_MS + 3_000L,
+        )
     }
 
     /** Asks the exit health loop to poll right away instead of waiting a tick. */

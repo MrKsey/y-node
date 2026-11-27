@@ -4,6 +4,14 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.33] — 2026-11-27
+
+### Fixed
+
+- **A tunnel that goes dead after a few minutes of use now recovers by itself.** Recreating only the pinned exit link was not enough: the route to the exit is chosen from the whole peer set, so a dead socket of any other peer blackholes it while still reporting "up"; a silent exit now walks a ladder — the pinned link, then every active link, then a full tunnel rebuild — with one fresh health poll between the steps, which is what a manual reconnect did.
+- **A dead data path rebuilds the tunnel instead of staying silent.** The two bridge threads carry every packet in both directions, and a thread that ended left the node and its links looking healthy while nothing was read from the node, which also starved the exit health poll; either thread ending now rebuilds the tunnel.
+- **A slow TUN write no longer stops the whole tunnel.** Both directions wrote into the descriptor from the thread that reads the node, so a blocking write froze `Recv` and with it the node's own connections; the writes now go through one writer thread and a bounded queue, and a full queue drops a packet instead of stalling the data path.
+
 ## [1.5.32] — 2026-11-27
 
 ### Fixed
