@@ -4,6 +4,14 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.38] — 2026-11-27
+
+### Fixed
+
+- **The exit link is redialled as soon as its overlay session dies, not two health polls later.** The pinned link to the exit node can keep its socket open after ironwood dropped the session: the core still reports the link as up and the tree keeps sending through it, so every packet is lost while the exit looks connected. The supervisor now watches the overlay latency of that link and recreates it after six seconds of silence, which turns the dropout that ran for half a minute every few minutes into a redial that finishes in under a second.
+- **The health ticks run every five seconds while the window is on screen.** A link that went silent is noticed at the next tick instead of on the next health interval, and the counters in the panel follow the same pace.
+- **An exit outage names the state of every link in the log.** The first failed poll of an outage writes one line with every link, whether it is up and its overlay latency, so the next report shows whether the exit link itself went silent or the route through another peer did.
+
 ## [1.5.37] — 2026-11-27
 
 ### Fixed

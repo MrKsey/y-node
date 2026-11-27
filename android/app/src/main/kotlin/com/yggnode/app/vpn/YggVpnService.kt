@@ -2033,6 +2033,15 @@ class YggVpnService : VpnService() {
             // "denied" means the exit answered and refused this client: its
             // link is fine, so recreating it would only cost a handshake.
             "unreachable" -> {
+                if (exitUnreachableCount == 0) {
+                    // One line per outage with every link and its overlay
+                    // state: the next report then shows whether the exit link
+                    // itself went silent or the route through another peer did.
+                    ConnectionLog.append(
+                        "WARN",
+                        "the exit node stopped answering, links: ${peerSummary()}",
+                    )
+                }
                 exitUnreachableCount++
                 // The first step waits for a second failed poll, because one can
                 // be a hiccup. After a step has run, a single silent poll is
@@ -2242,6 +2251,31 @@ class YggVpnService : VpnService() {
             false
         } catch (_: Throwable) {
             false
+        }
+    }
+
+    /** Every link with its overlay state, short enough for one log line. */
+    private fun peerSummary(): String {
+        return try {
+            val arr = org.json.JSONArray(node.peersJSON)
+            buildList {
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    val uri = o.optString("uri")
+                    val parsed = try {
+                        java.net.URI(uri)
+                    } catch (_: Exception) {
+                        null
+                    }
+                    val host = parsed?.host ?: uri
+                    val port = parsed?.port ?: -1
+                    val state = if (o.optBoolean("up", false)) "up" else "down"
+                    val latency = o.optDouble("latencyMs", 0.0).toInt()
+                    add("${if (port > 0) "$host:$port" else host} $state ${latency}ms")
+                }
+            }.joinToString("; ")
+        } catch (_: Throwable) {
+            ""
         }
     }
 

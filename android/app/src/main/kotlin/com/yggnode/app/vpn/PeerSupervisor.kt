@@ -89,6 +89,10 @@ class PeerSupervisor(
     /** When the service was last asked to refill an empty pool. */
     private var lastPoolRequestAt = 0L
 
+    /** When the exit link was last redialled for a silent overlay session, so a
+     *  node that keeps going silent is not redialled on every tick. */
+    private var lastPinnedRestartAt = 0L
+
     /** A forced tick interval for the current visibility, zero to follow the
      *  health setting. The tunnel keeps running either way: a longer interval
      *  only means a dead peer is noticed and replaced later, which costs
@@ -390,6 +394,9 @@ class PeerSupervisor(
             synchronized(lock) {
                 addedAt[peer.uri] = android.os.SystemClock.elapsedRealtime()
                 deadSince.remove(peer.uri)
+                // A fresh socket needs a moment to handshake: the silence
+                // measured on the old one says nothing about it.
+                silentSince.remove(peer.uri)
             }
             restarted++
         }
@@ -613,7 +620,10 @@ class PeerSupervisor(
                 // the list once a second makes the rows turn green as they come
                 // up instead of showing "0 of 3" until the first health tick.
                 warmingUp -> FAST_START_INTERVAL_MS
-                else -> base
+                // The window is on screen: follow the health setting, but no
+                // slower than the watch pace. A link that went silent must be
+                // caught here, not a whole health interval later.
+                else -> minOf(base, LINK_WATCH_MS)
             }
             synchronized(sleeper) {
                 if (!checkRequested && running) {
@@ -669,6 +679,7 @@ class PeerSupervisor(
         lastTotal = total
         onStats(up, total, avg, peersJson)
 
+        var silentPinned: PeerEntry? = null
         synchronized(lock) {
             // 0. A restore that ran while the network was still coming up after
             //    the sleep left its peers in `suspended`. Ask the node again on
@@ -695,6 +706,22 @@ class PeerSupervisor(
                 } else {
                     deadSince.putIfAbsent(peer.uri, now)
                     silentSince.remove(peer.uri)
+                }
+            }
+
+            // 1b. A pinned link is never swapped for a pool peer, but its
+            //     session can die under an open socket: the core keeps the link
+            //     "up", the tree keeps sending through it, and every packet is
+            //     lost. The exit link is the one the whole exit hangs on, so it
+            //     is redialled as soon as the silence is long enough to be real
+            //     instead of waiting for two failed health polls.
+            if (now - lastPinnedRestartAt >= PINNED_RESTART_BACKOFF_MS) {
+                silentPinned = active.firstOrNull { peer ->
+                    if (!peer.pinned) return@firstOrNull false
+                    val born = addedAt[peer.uri] ?: 0L
+                    if (born != 0L && now - born < PINNED_GRACE_MS) return@firstOrNull false
+                    val since = silentSince[peer.uri] ?: return@firstOrNull false
+                    now - since >= PINNED_SILENT_MS
                 }
             }
 
@@ -766,6 +793,19 @@ class PeerSupervisor(
             deadSince.keys.retainAll(activeUris)
             silentSince.keys.retainAll(activeUris)
             penalisedUntil.entries.removeAll { it.value < now }
+        }
+
+        // The redial blocks for a few seconds while the node forgets the old
+        // link, so it runs outside the lock: the stats loop and the UI must not
+        // wait for it.
+        val pinned = silentPinned
+        if (pinned != null) {
+            lastPinnedRestartAt = android.os.SystemClock.elapsedRealtime()
+            onLog(
+                "WARN",
+                "the exit link ${pinned.uri} is up but its overlay session is silent, redialling it",
+            )
+            restartLinks(listOf(pinned), "the overlay session is silent")
         }
     }
 
@@ -948,6 +988,25 @@ class PeerSupervisor(
          *  drops the peer, so the link looks healthy while nothing is routed
          *  through it; ironwood itself measures a live peer every second. */
         private const val OVERLAY_SILENT_MS = 30 * 1000L
+
+        /** The same silence on the pinned exit link. It carries the exit and is
+         *  usually the tree parent, so every second of it is a blackhole for
+         *  all traffic: it is redialled much sooner than a public peer, which
+         *  is only swapped. */
+        private const val PINNED_SILENT_MS = 6_000L
+
+        /** A link that was just dialled needs time to handshake before its
+         *  silence means anything. */
+        private const val PINNED_GRACE_MS = 15_000L
+
+        /** How often the exit link may be redialled for silence. A node that is
+         *  really offline is left to the exit health ladder. */
+        private const val PINNED_RESTART_BACKOFF_MS = 60_000L
+
+        /** The tick pace while the window is on screen. The panel figures are
+         *  refreshed at this pace anyway, and a silent link has to be noticed
+         *  long before the exit health poll gives up on it. */
+        private const val LINK_WATCH_MS = 5_000L
 
         /** How often an empty pool may trigger a background probe. */
         private const val POOL_REQUEST_MS = 10 * 60 * 1000L
