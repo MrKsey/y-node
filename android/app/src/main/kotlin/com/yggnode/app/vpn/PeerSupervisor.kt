@@ -68,10 +68,14 @@ class PeerSupervisor(
     private var thread: Thread? = null
     private var lastRetryAt = 0L
 
-    /** When the loop started, for the fast warm-up pace: a fresh tunnel spends
-     *  the first seconds completing handshakes, and the normal interval would
-     *  leave the list at "0 of 3" until the next tick. */
-    private var startedAt = 0L
+    /** Until this moment the loop re-reads the peer list once a second while
+     *  some configured link is still down. A fresh tunnel spends the first
+     *  seconds completing handshakes, and the normal interval would leave the
+     *  list at "0 of 3" until the next tick. A wake needs the same pace for
+     *  longer: the peers are restored and the links redialled, and the radio
+     *  may take a while to recover after a long sleep. */
+    @Volatile
+    private var warmUpUntil = 0L
 
     /** The counts of the last tick, so the warm-up stops once every link is up. */
     @Volatile
@@ -158,8 +162,13 @@ class PeerSupervisor(
         // The list changed outside a tick, so the counts in the shared state
         // are still the ones from before. Publishing them here keeps a window
         // that is coming back from showing the old "4/4 connected" for the
-        // moment the restore takes.
-        if (changed) publishLiveStats()
+        // moment the restore takes. A restore also re-enters the fast pace: its
+        // links dial one by one, and the panel has to follow them instead of
+        // waiting out the hidden interval with "1/4" on screen.
+        if (changed) {
+            publishLiveStats()
+            if (!on) restartWarmUp()
+        }
     }
 
     /** Drops or restores the public peers. Returns true when the list moved. */
@@ -277,8 +286,23 @@ class PeerSupervisor(
      * coming up one by one, and the hidden-window tick would leave the panel at
      * "1/4" for a minute; the fast pace stops by itself once every link is up.
      */
-    fun restartWarmUp() {
-        startedAt = android.os.SystemClock.elapsedRealtime()
+    fun restartWarmUp() = warmUpFor(FAST_START_MS)
+
+    /**
+     * The wake path: the screen came back and the peers are being restored and
+     * redialled. The radio may need a while to recover after a long sleep, so
+     * the fast pace lasts longer than the warm-up of a fresh connect.
+     */
+    fun restartWakeWarmUp() = warmUpFor(WAKE_WARM_MS)
+
+    /**
+     * Extends the fast pace. A shorter request never shortens a longer window
+     * that is already running, so the restore of the peers cannot cut the wake
+     * window back to the connect one.
+     */
+    private fun warmUpFor(windowMs: Long) {
+        val until = android.os.SystemClock.elapsedRealtime() + windowMs
+        if (until > warmUpUntil) warmUpUntil = until
         lastUp = 0
         lastTotal = 0
         requestCheck()
@@ -413,6 +437,10 @@ class PeerSupervisor(
         // The counts changed even when every add failed: the panel must not
         // keep the figures from before the links were dropped.
         publishLiveStats()
+        // The redialled links come up one by one: the fast pace has to run from
+        // this moment, otherwise the next tick is the hidden one and the panel
+        // stays at "1/4" while every link is already back.
+        if (restarted > 0) restartWarmUp()
     }
 
     /** Links the node reports as up with a live overlay session. */
@@ -502,7 +530,7 @@ class PeerSupervisor(
             lastErrors.putAll(prefs.peerErrors())
         }
         running = true
-        startedAt = android.os.SystemClock.elapsedRealtime()
+        warmUpUntil = android.os.SystemClock.elapsedRealtime() + FAST_START_MS
         lastUp = 0
         lastTotal = 0
         synchronized(tickSignal) {
@@ -596,8 +624,8 @@ class PeerSupervisor(
                 }
             }
             val base = settings.healthCheckSec.coerceIn(5, 120) * 1000L
-            val warmingUp = android.os.SystemClock.elapsedRealtime() - startedAt <
-                FAST_START_MS && (lastTotal == 0 || lastUp < lastTotal)
+            val warmingUp = android.os.SystemClock.elapsedRealtime() < warmUpUntil &&
+                (lastTotal == 0 || lastUp < lastTotal)
             val pendingRestore = synchronized(lock) { suspended.isNotEmpty() }
             val sleep = when {
                 // Only the exit link is kept while the screen is off. There is
@@ -615,11 +643,14 @@ class PeerSupervisor(
                 // nothing to do while the screen is off, and the loop waits for
                 // a real request instead of waking the CPU on a timer.
                 overrideIntervalMs < 0L -> 0L
-                overrideIntervalMs > 0L -> maxOf(overrideIntervalMs, base)
-                // A fresh tunnel finishes its handshakes one by one. Reading
-                // the list once a second makes the rows turn green as they come
-                // up instead of showing "0 of 3" until the first health tick.
+                // A fresh tunnel finishes its handshakes one by one, and a wake
+                // restores its peers and redials its links the same way. The
+                // fast pace has to win over the hidden-window interval: with
+                // the interval first, a phone that came back from sleep sat on
+                // "1/4" until its next minute tick while every link was already
+                // up, and only opening the window refreshed the panel.
                 warmingUp -> FAST_START_INTERVAL_MS
+                overrideIntervalMs > 0L -> maxOf(overrideIntervalMs, base)
                 // The window is on screen: follow the health setting, but no
                 // slower than the watch pace. A link that went silent must be
                 // caught here, not a whole health interval later.
@@ -1018,6 +1049,12 @@ class PeerSupervisor(
          *  still handshaking, so the list fills in as the links come up. */
         private const val FAST_START_MS = 30_000L
         private const val FAST_START_INTERVAL_MS = 1_000L
+
+        /** The same fast pace after the screen comes back, for longer: a phone
+         *  that slept through the night needs time to restore the peers and to
+         *  bring the radio up, and the panel must follow the links instead of
+         *  waiting out the hidden pace with "1/4" on screen. */
+        private const val WAKE_WARM_MS = 120_000L
 
         /** A link younger than this was dialled after the sleep and is left
          *  alone by a wake restart: its socket is already new. */

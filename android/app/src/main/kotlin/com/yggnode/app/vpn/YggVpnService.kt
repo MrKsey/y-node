@@ -1495,7 +1495,9 @@ class YggVpnService : VpnService() {
             supervisor?.let { sup -> worker.execute { sup.setExitOnly(false) } }
             // The links of a tunnel that just woke come up one by one, and the
             // panel has to follow them instead of waiting out the hidden pace.
-            supervisor?.restartWarmUp()
+            // The window is longer than a connect's warm-up: after a night of
+            // sleep the radio itself may take a while to come back.
+            supervisor?.restartWakeWarmUp()
             restartLinksAfterSleep(offAt)
         }
         if (interactive) {

@@ -72,7 +72,6 @@ class HomeScreen extends StatelessWidget {
             ),
           ],
         ),
-        actions: const [_BatteryBadge()],
       ),
       body: RefreshIndicator(
         onRefresh: state.refreshFromStore,
@@ -1290,28 +1289,6 @@ class _StatsCard extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// The "exemption granted" badge in the app bar.
-///
-/// It is a separate widget on purpose: the tunnel screen rebuilds once a second
-/// while traffic flows, and the badge only has to change when the exemption
-/// itself changes.
-class _BatteryBadge extends StatelessWidget {
-  const _BatteryBadge();
-
-  @override
-  Widget build(BuildContext context) {
-    final exempt = context.select<AppState, bool>((s) => s.batteryExempt);
-    if (!exempt) return const SizedBox.shrink();
-    return Tooltip(
-      message: L10n.of(context).t('batteryGranted'),
-      child: const Padding(
-        padding: EdgeInsets.only(right: 12),
-        child: Icon(Icons.battery_charging_full_rounded, size: 20),
       ),
     );
   }

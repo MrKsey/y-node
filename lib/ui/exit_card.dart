@@ -438,23 +438,21 @@ class _UdpRow extends StatelessWidget {
       'error' => l10n.tf('exitUdpError', [udp.error]),
       _ => l10n.t('exitUdpOff'),
     };
-    // The counters are short on purpose: arrows instead of the words "in" and
-    // "out", so the line fits a 360 dp screen. The full wording stays in the
-    // semantics label for a screen reader, and the tooltip explains the
-    // arrows.
-    final traffic = udp.datagramsIn + udp.datagramsOut > 0
+    // Only the traffic volume: the datagram count says nothing a reader can
+    // act on, and the bytes are what the quota is spent on. The arrows instead
+    // of the words "in" and "out" keep the line short on a 360 dp screen; the
+    // full wording stays in the semantics label for a screen reader, and the
+    // tooltip explains the arrows.
+    final hasTraffic = udp.bytesIn + udp.bytesOut > 0;
+    final traffic = hasTraffic
         ? l10n.tf('exitUdpTraffic', [
-            '${udp.datagramsIn}',
             formatBytes(udp.bytesIn),
-            '${udp.datagramsOut}',
             formatBytes(udp.bytesOut),
           ])
         : null;
-    final trafficSpoken = udp.datagramsIn + udp.datagramsOut > 0
+    final trafficSpoken = hasTraffic
         ? l10n.tf('exitUdpTrafficFull', [
-            '${udp.datagramsIn}',
             formatBytes(udp.bytesIn),
-            '${udp.datagramsOut}',
             formatBytes(udp.bytesOut),
           ])
         : null;

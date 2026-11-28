@@ -4,6 +4,17 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.41] — 2026-11-28
+
+### Fixed
+
+- **The panel follows the links right after the screen comes back.** With "Keep only the exit node with the screen off" the wake restored the peers and redialled the links, but the loop still waited out the hidden-window interval of a minute, so the notification sat at "1/4 peers" until its next tick; opening the window forced a fresh read, which is why it showed "4/4" at once. The wake now re-enters the one-second pace for two minutes, the fast pace wins over the hidden interval, and a restore or a redial restarts it as well.
+- **The battery badge is gone from the app bar.** The exemption is still shown and switched in Settings, where the switch also explains what turning it off does.
+
+### Changed
+
+- **The UDP relay line shows the traffic volume only.** The datagram counters said nothing a reader could act on, so the line now reads "↓ 30.1 MB · ↑ 1.5 MB" and the screen reader gets the same figures with words.
+
 ## [1.5.40] — 2026-11-28
 
 ### Fixed

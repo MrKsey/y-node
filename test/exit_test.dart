@@ -762,24 +762,17 @@ void main() {
     expect(result.quic.error, 'skipped');
   });
 
-  test('the UDP counters are compact enough not to wrap', () {
+  test('the UDP line carries the volume, not the datagram count', () {
     const l10n = L10n();
-    final text = l10n.tf('exitUdpTraffic', [
-      '28600',
-      '30.1 MB',
-      '6162',
-      '1.5 MB',
-    ]);
-    // The long wording "28600 (30.1 MB) datagrams in · …" wrapped in the
-    // middle of "out" on a 360 dp screen; the arrows keep the line short.
-    expect(text.contains('datagram'), isFalse);
+    final text = l10n.tf('exitUdpTraffic', ['30.1 MB', '1.5 MB']);
     expect(text, startsWith('↓'));
     expect(text.contains('↑'), isTrue);
     expect(text, contains('30.1 MB'));
-    // The full wording is kept for the screen reader.
-    final spoken = l10n.tf('exitUdpTrafficFull', ['1', '1 B', '2', '2 B']);
-    expect(spoken, contains('datagrams in'));
-    expect(spoken, contains('datagrams out'));
+    expect(text, contains('1.5 MB'));
+    // The datagram counters are gone: the line is about the traffic volume.
+    expect(text.contains('datagram'), isFalse);
+    final spoken = l10n.tf('exitUdpTrafficFull', ['1 B', '2 B']);
+    expect(spoken, '1 B in, 2 B out');
   });
 
   test('the IPv6 check result is read from the bridge JSON', () {
