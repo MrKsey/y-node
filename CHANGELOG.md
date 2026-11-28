@@ -4,6 +4,12 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.42] — 2026-11-28
+
+### Changed
+
+- **A DNS server that stops answering stays in "In use".** The automatic check used to drop a resolver after three failed attempts and fill the gap with servers from the wiki, so a server that was briefly unreachable disappeared from the list and the traffic silently moved to another one. The check now only marks the row red with "Not working": the server stays where the user put it and is used again as soon as it answers.
+
 ## [1.5.41] — 2026-11-28
 
 ### Fixed

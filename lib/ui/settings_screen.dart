@@ -161,7 +161,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       const SizedBox(width: 8),
                       TextButton.icon(
                         onPressed: state.dnsReady && !state.checkingDns
-                            ? () => state.verifyDns(replaceDead: false)
+                            ? () => state.verifyDns()
                             : null,
                         icon: state.checkingDns
                             ? const SizedBox(
@@ -181,15 +181,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ],
                   ),
                 ),
-                if (state.dnsReplaced.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-                    child: Text(
-                      l10n.tf('dnsReplaced', [state.dnsReplaced.join(', ')]),
-                      style: Theme.of(context).textTheme.labelSmall
-                          ?.copyWith(color: AppColors.copper),
-                    ),
-                  ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 2),
                   child: Text(
@@ -233,7 +224,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         : IconButton(
                             tooltip: l10n.t('remove'),
                             onPressed: () {
-                              state.dismissDnsDead(server);
+                              state.forgetDnsDead(server);
                               save(
                                 settings.copyWith(
                                   dnsServers: [
@@ -246,58 +237,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             icon: const Icon(Icons.close_rounded, size: 18),
                           ),
                   ),
-                if (state.dnsDead.any(
-                  (server) => !settings.dnsServers.contains(server),
-                )) ...[
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 2),
-                    child: Text(
-                      l10n.t('dnsNotWorkingTitle').toUpperCase(),
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        letterSpacing: 0.6,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.offline,
-                      ),
-                    ),
-                  ),
-                  for (final server in state.dnsDead)
-                    if (!settings.dnsServers.contains(server))
-                      _DnsServerTile(
-                        server: server,
-                        label: _dnsLabel(state, server),
-                        check: state.dnsChecks[server],
-                        l10n: l10n,
-                        fromExit: state.isExitDnsPreset(server),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              tooltip: l10n.t('add'),
-                              onPressed: () {
-                                save(
-                                  settings.copyWith(
-                                    dnsServers: [
-                                      ...settings.dnsServers,
-                                      server,
-                                    ],
-                                  ),
-                                );
-                                // The tunnel is already up: measure the server
-                                // now instead of waiting for the next full run.
-                                state.checkDnsServer(server);
-                              },
-                              icon: const Icon(Icons.add_rounded, size: 20),
-                            ),
-                            IconButton(
-                              tooltip: l10n.t('dnsForget'),
-                              onPressed: () => state.dismissDnsDead(server),
-                              icon: const Icon(Icons.close_rounded, size: 18),
-                            ),
-                          ],
-                        ),
-                      ),
-                ],
-                if (settings.dnsServers.isEmpty && state.dnsDead.isEmpty)
+                if (settings.dnsServers.isEmpty)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
                     child: Text(

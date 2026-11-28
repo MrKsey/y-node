@@ -191,16 +191,10 @@ class AppState extends ChangeNotifier {
   Map<String, DnsCheck> dnsChecks = const {};
   bool checkingDns = false;
 
-  /// Servers that were dropped after a failed check, shown until the next run.
-  List<String> dnsReplaced = const [];
-
-  /// Dead servers removed from the tunnel list by the automatic check; kept
-  /// visible (and marked red) until the user adds them back or checks again.
+  /// Servers that did not answer the last check. They stay in the tunnel list
+  /// and are marked red there: a resolver that is unreachable for a moment
+  /// must not disappear from "In use".
   List<String> dnsDead = const [];
-
-  /// Servers the user removed from the "not working" block; the automatic check
-  /// will not put them back.
-  final Set<String> _dnsDismissed = {};
   bool _dnsVerified = false;
   bool _dnsScheduled = false;
 
@@ -2884,21 +2878,20 @@ class AppState extends ChangeNotifier {
   ];
 
   /// Resolves a real in-network name through every configured DNS server. A
-  /// server that fails is checked again after 5 and then 15 seconds; only after
-  /// all three attempts fail is it dropped from the list. When none is left,
-  /// unused servers from the wiki take its place. `Check now` calls the same
-  /// routine but keeps the list as it is.
+  /// server that fails is checked again after 5 and then 15 seconds; a server
+  /// that still does not answer stays in the list and is marked red. A resolver
+  /// that is unreachable for a moment must not disappear from "In use": the
+  /// user picked it, and it has to be there when it comes back.
   ///
   /// Returns true when the node actually answered for the list (even if every
   /// server failed): an empty result means the stack was not ready yet, and the
   /// caller may try again.
-  Future<bool> verifyDns({bool replaceDead = true}) async {
+  Future<bool> verifyDns() async {
     if (checkingDns) return false;
     final servers = settings.effectiveDns;
     if (servers.isEmpty || !dnsReady) return false;
     final generation = _dnsGeneration;
     checkingDns = true;
-    dnsReplaced = const [];
     notifyListeners();
     try {
       final results = await _checkDnsWithRetries(
@@ -2930,35 +2923,10 @@ class AppState extends ChangeNotifier {
         ...dnsChecks,
         for (final check in results) check.server: check,
       };
-      final dead = [
+      dnsDead = [
         for (final check in results)
           if (!check.ok) check.server,
       ];
-      dnsDead = dead;
-      if (dead.isEmpty) return true;
-      if (!replaceDead) return true;
-      // The resolver of the active exit node belongs to its switch: a failed
-      // check marks it red but does not drop it, or the switch would turn
-      // itself off behind the user's back.
-      final pinned = exitDnsServer;
-      var next = [
-        for (final server in settings.dnsServers)
-          if (!dead.contains(server) || server == pinned) server,
-      ];
-      if (next.isEmpty) {
-        final used = {...settings.dnsServers, ...dead};
-        next = [
-          for (final preset in allDnsPresets)
-            if (!preset.deprecated &&
-                !used.contains(preset.address) &&
-                !_dnsDismissed.contains(preset.address))
-              preset.address,
-        ].take(2).toList();
-        dnsReplaced = dead;
-      }
-      if (next.isNotEmpty) {
-        await saveSettings(settings.copyWith(dnsServers: next));
-      }
       return true;
     } finally {
       checkingDns = false;
@@ -3071,14 +3039,13 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Forgets a server in the "not working" block. The automatic check will not
-  /// put it back during this session.
-  void dismissDnsDead(String server) {
+  /// Forgets a server the user removed from the list, so the "available"
+  /// block offers it again at once instead of hiding it until the next check.
+  void forgetDnsDead(String server) {
     dnsDead = [
       for (final item in dnsDead)
         if (item != server) item,
     ];
-    _dnsDismissed.add(server);
     notifyListeners();
   }
 

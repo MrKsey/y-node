@@ -564,8 +564,6 @@ class L10n {
     'dnsOkTcp': 'Resolved in %s ms over TCP',
     'dnsFailed': 'No answer',
     'dnsNotWorking': 'Not working',
-    'dnsNotWorkingTitle': 'Not working',
-    'dnsForget': 'Remove from the list',
     'dnsName': 'Test name',
     'dnsAnswer': '%s → %s',
     'dnsUnknown': 'Not checked',
@@ -575,16 +573,14 @@ class L10n {
     'dnsAutoHint':
         'Every server is checked by resolving a few in-network names once the '
         'tunnel is fully up and a peer answers. A failed server is checked '
-        'again after 5 and 15 seconds; only then is it dropped and, if none is '
-        'left, replaced.',
+        'again after 5 and 15 seconds; it stays in the list and is marked red.',
     'dnsInUse': 'In use',
     'dnsAvailable': 'Available servers',
     'dnsAvailableHint':
         'Servers published in the Yggdrasil wiki and by your exit nodes',
     'dnsFromExitNode': 'DNS from exit node',
     'dnsExitLocked': 'Managed by the DNS exit node switch',
-    'dnsReplaced': 'Dead servers replaced: %s',
-    'dnsAllDead': 'No DNS server answered; check the tunnel',
+    'dnsAllDead': 'No DNS server in the list; add one below',
     'dnsSource': 'List source: Yggdrasil wiki',
     'sectionNetwork': 'Network',
     'mtu': 'MTU',
