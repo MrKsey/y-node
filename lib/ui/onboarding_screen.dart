@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../core/theme.dart';
 import '../data/geo.dart';
+import '../data/native.dart';
 import '../l10n/strings.dart';
 import '../state/app_state.dart';
 import 'widgets.dart';
@@ -27,7 +28,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   void _next() {
-    if (_page >= 2) {
+    if (_page >= 3) {
       _finish();
       return;
     }
@@ -70,6 +71,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 children: [
                   _WelcomePage(l10n: l10n),
                   _IdentityPage(state: state, l10n: l10n),
+                  _BatteryPage(state: state, l10n: l10n),
                   _PeersPage(state: state, l10n: l10n, onSkip: _finish),
                 ],
               ),
@@ -79,7 +81,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  for (var index = 0; index < 3; index++)
+                  for (var index = 0; index < 4; index++)
                     AnimatedContainer(
                       duration: const Duration(milliseconds: 200),
                       margin: const EdgeInsets.symmetric(horizontal: 4),
@@ -112,7 +114,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     child: FilledButton(
                       onPressed: _next,
                       child: Text(
-                        _page >= 2
+                        _page >= 3
                             ? l10n.t('onboardingFinish')
                             : l10n.t('next'),
                       ),
@@ -258,6 +260,67 @@ class _IdentityPage extends StatelessWidget {
                 ],
               ),
             ),
+    );
+  }
+}
+
+class _BatteryPage extends StatefulWidget {
+  const _BatteryPage({required this.state, required this.l10n});
+
+  final AppState state;
+  final L10n l10n;
+
+  @override
+  State<_BatteryPage> createState() => _BatteryPageState();
+}
+
+class _BatteryPageState extends State<_BatteryPage> {
+  @override
+  void initState() {
+    super.initState();
+    // The exemption may have been granted in the system settings before the
+    // app was opened, so the switch has to show the live value.
+    widget.state.refreshBattery();
+  }
+
+  Future<void> _toggle(bool value) async {
+    if (value) {
+      await Native.requestBatteryExemption();
+    } else {
+      await Native.openBatteryOptimizationList();
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 800));
+    await widget.state.refreshBattery();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final l10n = widget.l10n;
+    final exempt = widget.state.batteryExempt;
+    return _Page(
+      icon: Icons.battery_saver_rounded,
+      title: l10n.t('onboardingBatteryTitle'),
+      body: l10n.t('onboardingBatteryBody'),
+      child: Card(
+        child: SwitchListTile(
+          value: exempt,
+          secondary: Icon(
+            exempt
+                ? Icons.battery_charging_full_rounded
+                : Icons.battery_alert_rounded,
+            color: exempt ? AppColors.online : null,
+          ),
+          title: Text(l10n.t('batteryExemption')),
+          subtitle: Text(
+            exempt ? l10n.t('batteryOn') : l10n.t('batteryOff'),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          onChanged: _toggle,
+        ),
+      ),
     );
   }
 }

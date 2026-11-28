@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:y_node/data/probe_service.dart';
@@ -10,6 +11,26 @@ import 'package:y_node/ui/onboarding_screen.dart';
 /// search even after peers had answered. The count must follow the round, and a
 /// round that has not reached the protocol yet must not claim a zero.
 void main() {
+  // The battery page asks the Android side for its live state as soon as it is
+  // built, and the page view builds it as the neighbour of the peers page. The
+  // test has no Android side, so the channel answers with null instead of
+  // leaving a five second timeout pending.
+  setUp(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('com.yggnode.app/vpn'),
+          (call) async => null,
+        );
+  });
+
+  tearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('com.yggnode.app/vpn'),
+          null,
+        );
+  });
+
   Future<void> pumpPeersPage(WidgetTester tester, AppState state) async {
     await tester.pumpWidget(
       ChangeNotifierProvider<AppState>.value(
@@ -17,7 +38,9 @@ void main() {
         child: const MaterialApp(home: OnboardingScreen()),
       ),
     );
-    for (var page = 0; page < 2; page++) {
+    // The pages before the peer search: welcome, identity and the battery
+    // exemption switch.
+    for (var page = 0; page < 3; page++) {
       await tester.drag(find.byType(PageView), const Offset(-500, 0));
       // A fixed pump instead of pumpAndSettle: the identity page keeps a
       // spinner running while the test has no identity to show.

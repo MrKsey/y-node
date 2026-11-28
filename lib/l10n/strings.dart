@@ -532,7 +532,10 @@ class L10n {
     'settingsTitle': 'Settings',
     'sectionConnection': 'Connection',
     'peerCount': 'Peers in the tunnel',
-    'peerCountHint': 'How many nodes to keep connected at once',
+    'peerCountHint':
+        'How many nodes to keep connected at once. 3-5 is enough for a stable '
+        'tunnel; every extra peer spends battery and traffic and rarely makes '
+        'the tunnel faster. The limit is 20.',
     'autoReplace': 'Replace dropped peers',
     'autoReplaceHint': 'Swap a lost node for a live one from the pool',
     'deadTimeout': 'Treat a peer as dead after',
@@ -610,6 +613,13 @@ class L10n {
     'batteryRequest': 'Request the exemption',
     'batteryRemoveHint': 'Turn the exemption off for Y-Node in the system list',
     'batteryRequestFailed': 'Could not open the battery optimisation settings',
+    'exitDnsSyncing': 'Exit DNS is loading the chain: %s%',
+    'exitDnsStarting': 'Exit DNS is starting: the chain is not loaded yet',
+    'exitDnsSyncingHint':
+        'The resolver of the exit downloads the Alfis chain on its first '
+        'start. Names resolve when it is done; the DNS check repeats by itself.',
+    'dnsInitializing': 'Initializing: %s%',
+    'dnsStarting': 'Starting…',
     'sectionLogs': 'Diagnostics',
     'diagnosticsCounters': 'Counters',
     'logging': 'Write a log',
@@ -690,6 +700,11 @@ class L10n {
     'onboardingIdentityBody':
         'The address is derived from your key and never changes. It is not tied '
         'to your location or identity.',
+    'onboardingBatteryTitle': 'Keep the tunnel on',
+    'onboardingBatteryBody':
+        'With the screen off, Android puts apps to sleep and the tunnel can drop. '
+        'Allow Y-Node to ignore battery optimisation so the connection stays up '
+        'in the background.',
     'onboardingPeersTitle': 'Connecting',
     'onboardingPeersBody':
         'The node joins the network through public peers. We will find the ones '

@@ -32,6 +32,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     Future<void> save(AppSettings next) => state.saveSettings(next);
 
+    // The resolver of an exit node is not broken while Alfis loads its chain:
+    // the tile shows the download progress instead of "Not working".
+    final exitDns = state.exitStatus.active;
+    final exitDnsPending = exitDns != null && exitDns.dnsStarting
+        ? exitDns.dnsSyncPercent > 0
+              ? l10n.tf('dnsInitializing', ['${exitDns.dnsSyncPercent}'])
+              : l10n.t('dnsStarting')
+        : null;
+
     return Scaffold(
       appBar: AppBar(title: Text(l10n.t('settingsTitle'))),
       body: ListView(
@@ -199,6 +208,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     check: state.dnsChecks[server],
                     l10n: l10n,
                     fromExit: state.isExitDnsPreset(server),
+                    pending: state.isExitDnsServer(server)
+                        ? exitDnsPending
+                        : null,
                     trailing: state.isExitDnsServer(server)
                         ? (state.settings.exitEnabled
                               ? Tooltip(
@@ -824,6 +836,7 @@ class _DnsServerTile extends StatelessWidget {
     required this.check,
     required this.l10n,
     this.fromExit = false,
+    this.pending,
     this.trailing,
   });
 
@@ -832,17 +845,25 @@ class _DnsServerTile extends StatelessWidget {
   final DnsCheck? check;
   final L10n l10n;
   final bool fromExit;
+
+  /// What the exit resolver is doing while it is not ready yet: "Starting…" or
+  /// "Initializing: 42%". Shown instead of "Not working", because a resolver
+  /// that is still loading its chain did not fail.
+  final String? pending;
   final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final failed = check != null && !check!.ok;
+    final waiting = failed && fromExit && pending != null;
     final ok = check?.ok ?? false;
     final color = check == null
         ? theme.colorScheme.onSurfaceVariant
         : ok
         ? AppColors.online
+        : waiting
+        ? Colors.orange
         : AppColors.offline;
 
     return ListTile(
@@ -853,6 +874,8 @@ class _DnsServerTile extends StatelessWidget {
             ? (fromExit ? Icons.vpn_lock_rounded : Icons.dns_outlined)
             : ok
             ? Icons.check_circle_rounded
+            : waiting
+            ? Icons.sync_rounded
             : Icons.error_outline_rounded,
         size: 20,
         color: color,
@@ -861,7 +884,7 @@ class _DnsServerTile extends StatelessWidget {
         server,
         style: TextStyle(
           fontFamily: 'monospace',
-          color: failed ? AppColors.offline : null,
+          color: failed && !waiting ? AppColors.offline : null,
         ),
       ),
       subtitle: Column(
@@ -875,6 +898,8 @@ class _DnsServerTile extends StatelessWidget {
                   ? (check!.via == 'tcp'
                         ? l10n.tf('dnsOkTcp', [check!.ms.round()])
                         : l10n.tf('dnsOk', [check!.ms.round()]))
+                  : waiting
+                  ? pending!
                   : l10n.t('dnsNotWorking'),
               style: theme.textTheme.labelSmall?.copyWith(color: color),
             ),

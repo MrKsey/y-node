@@ -282,6 +282,9 @@ class AppState extends ChangeNotifier {
   /// its own exit status arrives.
   ExitStatus? _exitChecked;
   bool checkingExit = false;
+  // The last automatic DNS retry that followed the exit resolver becoming
+  // ready. Keeps the retry from running on every status poll.
+  DateTime _lastExitDnsRetry = DateTime.fromMillisecondsSinceEpoch(0);
   // A capability check runs once per connection, after the first peer has
   // finished its handshake: the status API goes through Yggdrasil and cannot
   // answer before that.
@@ -469,7 +472,9 @@ class AppState extends ChangeNotifier {
       }
       await Native.write(_kLogDefaultOff, '1');
     }
-    final migrated = _withExitDnsFirst(_migrateExitDns(_migrateDns(settings)));
+    final migrated = _withExitDnsFirst(
+      _migrateExitDns(_migratePeerTimeouts(_migrateDns(settings))),
+    );
     if (migrated != settings) {
       settings = migrated;
       await Native.write(_kSettings, _encode(settings.toJson()));
@@ -1325,6 +1330,21 @@ class AppState extends ChangeNotifier {
   /// exit node" switch without a new invite.
   void _adoptExitStatus(ExitStatus? status) {
     if (status == null || status.profiles.isEmpty) return;
+    // A resolver that was still loading its chain when the last DNS check ran
+    // is not dead. Once the exit reports it ready, the check is repeated by
+    // itself, at most every half a minute: the user must not press "Check now"
+    // to see a working DNS.
+    final active = status.active;
+    if (active != null &&
+        active.dnsState == 'ready' &&
+        settings.exitDnsEnabled &&
+        dnsReady &&
+        dnsChecks[exitDnsServer]?.ok == false &&
+        DateTime.now().difference(_lastExitDnsRetry) >
+            const Duration(seconds: 30)) {
+      _lastExitDnsRetry = DateTime.now();
+      unawaited(verifyDns());
+    }
     var changed = false;
     final next = <ExitProfile>[];
     for (final profile in settings.exitProfiles) {
@@ -2366,7 +2386,7 @@ class AppState extends ChangeNotifier {
   /// Returns how many links changed.
   Future<int> applyBestPeers() async {
     // The setting describes public peers; the pinned exit links are extra.
-    final target = settings.peerCount.clamp(1, 50) + pinnedPeerCount;
+    final target = settings.peerCount.clamp(1, 20) + pinnedPeerCount;
     final active = [...peers];
     final dropped = <String>{};
 
@@ -3166,6 +3186,16 @@ class AppState extends ChangeNotifier {
       return next.copyWith(dnsServers: AppSettings.defaultDnsServers);
     }
     return next;
+  }
+
+  /// Before 1.5.43 the built-in pair was 45/15. The desktop client and X-Node
+  /// use 90/30: a link that is briefly slow must not be dropped. A pair the
+  /// user changed is left alone.
+  static AppSettings _migratePeerTimeouts(AppSettings value) {
+    if (value.deadPeerTimeoutSec != 45 || value.healthCheckSec != 15) {
+      return value;
+    }
+    return value.copyWith(deadPeerTimeoutSec: 90, healthCheckSec: 30);
   }
 
   /// Before 1.5.2 the "DNS exit node" switch had no stored flag: its value was

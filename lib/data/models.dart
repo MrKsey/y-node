@@ -469,6 +469,11 @@ class ExitProfileStatus {
     this.dnsAddress = '',
     this.dnsPort = 53,
     this.dnsKnown = false,
+    this.dnsState = '',
+    this.dnsSyncPercent = 0,
+    this.dnsSyncHave = 0,
+    this.dnsSyncHeight = 0,
+    this.dnsNodes = 0,
   });
 
   final String id;
@@ -546,6 +551,21 @@ class ExitProfileStatus {
   /// reported".
   final bool dnsKnown;
 
+  /// What the exit resolver is doing: `off`, `starting` (the process is up but
+  /// the panel does not answer yet), `syncing` or `ready`. Empty for an exit
+  /// from before 1.7.29.
+  final String dnsState;
+
+  /// Progress of the Alfis chain download, 0..100.
+  final int dnsSyncPercent;
+  final int dnsSyncHave;
+  final int dnsSyncHeight;
+  final int dnsNodes;
+
+  /// True while the resolver is not ready yet: a failed lookup then says
+  /// nothing about the server, the chain is still loading.
+  bool get dnsStarting => dnsState == 'starting' || dnsState == 'syncing';
+
   /// True when the exit has IPv6 but cannot reach the internet over it. The
   /// tunnel then stops sending IPv6 traffic instead of letting it time out.
   bool get ipv6Broken => ipv6Available == false && ipv6State == 'broken';
@@ -610,6 +630,11 @@ class ExitProfileStatus {
         dnsAddress: ((json['dnsAddress'] as String?) ?? '').trim(),
         dnsPort: (json['dnsPort'] as num?)?.toInt() ?? 53,
         dnsKnown: (json['dnsKnown'] as bool?) ?? false,
+        dnsState: ((json['dnsState'] as String?) ?? '').trim(),
+        dnsSyncPercent: (json['dnsSyncPercent'] as num?)?.toInt() ?? 0,
+        dnsSyncHave: (json['dnsSyncHave'] as num?)?.toInt() ?? 0,
+        dnsSyncHeight: (json['dnsSyncHeight'] as num?)?.toInt() ?? 0,
+        dnsNodes: (json['dnsNodes'] as num?)?.toInt() ?? 0,
       );
 
   ExitProfileStatus copyWith({String? name}) => ExitProfileStatus(
@@ -637,6 +662,11 @@ class ExitProfileStatus {
     dnsAddress: dnsAddress,
     dnsPort: dnsPort,
     dnsKnown: dnsKnown,
+    dnsState: dnsState,
+    dnsSyncPercent: dnsSyncPercent,
+    dnsSyncHave: dnsSyncHave,
+    dnsSyncHeight: dnsSyncHeight,
+    dnsNodes: dnsNodes,
   );
 }
 
@@ -1085,8 +1115,8 @@ class AppSettings {
   const AppSettings({
     this.peerCount = 3,
     this.autoReplace = false,
-    this.deadPeerTimeoutSec = 45,
-    this.healthCheckSec = 15,
+    this.deadPeerTimeoutSec = 90,
+    this.healthCheckSec = 30,
     this.dnsMode = DnsMode.yggdrasil,
     this.dnsServers = const ['308:84:68:55::', '308:25:40:bd::'],
     this.mtu = 1280,
@@ -1238,8 +1268,8 @@ class AppSettings {
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
     peerCount: (json['peerCount'] as num?)?.toInt() ?? 3,
     autoReplace: (json['autoReplace'] as bool?) ?? false,
-    deadPeerTimeoutSec: (json['deadPeerTimeoutSec'] as num?)?.toInt() ?? 45,
-    healthCheckSec: (json['healthCheckSec'] as num?)?.toInt() ?? 15,
+    deadPeerTimeoutSec: (json['deadPeerTimeoutSec'] as num?)?.toInt() ?? 90,
+    healthCheckSec: (json['healthCheckSec'] as num?)?.toInt() ?? 30,
     dnsMode: (json['dnsMode'] as String?) ?? DnsMode.yggdrasil,
     dnsServers: _dnsListFrom(json),
     mtu: (json['mtu'] as num?)?.toInt() ?? 1280,

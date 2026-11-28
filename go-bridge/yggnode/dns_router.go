@@ -83,13 +83,14 @@ func (r *dnsRouter) handle(query []byte) []byte {
 	defer cancel()
 
 	var response []byte
+	cacheable := true
 	switch {
 	case isYggName(name):
 		response = r.resolveYgg(ctx, query)
 	case r.isLocalName(name):
 		response = r.resolveLocal(ctx, query)
 	default:
-		response = r.resolveOrdinary(ctx, query)
+		response, cacheable = r.resolveOrdinary(ctx, query)
 	}
 	if len(response) == 0 {
 		response = servfail(query)
@@ -102,9 +103,13 @@ func (r *dnsRouter) handle(query []byte) []byte {
 	if len(response) > 0 {
 		switch dnsRcode(response) {
 		case 0:
-			r.store(key, response)
+			if cacheable {
+				r.store(key, response)
+			}
 		case dnsRcodeNameError:
-			r.storeFor(key, response, 5*time.Second)
+			if cacheable {
+				r.storeFor(key, response, 5*time.Second)
+			}
 		}
 	}
 	return response
@@ -181,37 +186,62 @@ func (r *dnsRouter) resolveLocal(ctx context.Context, query []byte) []byte {
 	return raceResolvers(stageCtx, cfg.SystemDNS, query, r.queryDirect, r.log, "local")
 }
 
-func (r *dnsRouter) resolveOrdinary(ctx context.Context, query []byte) []byte {
+// resolveOrdinary resolves a public name. The second result says whether the
+// answer came from the exit resolver: only that answer matches the path the
+// traffic takes, so only it may be cached. A fallback answer comes from the
+// local network while the connection still leaves through the exit, and a site
+// behind a CDN rejects such a pair with "revalidate your DNS cache".
+func (r *dnsRouter) resolveOrdinary(ctx context.Context, query []byte) ([]byte, bool) {
 	cfg := r.exit.config()
+	exitPath := cfg.Enabled && len(cfg.Profiles) > 0 && len(cfg.DNS) > 0 && r.exit != nil
 	// errorAnswer is the last answer with a non-zero response code. It is only
 	// returned when every resolver failed: an error from one server must not
 	// hide the answer of the next one, and it must never be cached.
 	var errorAnswer []byte
-	if cfg.Enabled && len(cfg.Profiles) > 0 && r.exit != nil {
+	if exitPath {
 		exitCtx, exitCancel := context.WithTimeout(ctx, dnsStageTimeout)
 		response := raceResolvers(exitCtx, cfg.DNS, query, r.queryExit, r.log, "exit")
 		exitCancel()
 		if dnsUsable(response) {
-			return response
+			return response, true
 		}
 		if len(response) > 0 {
 			errorAnswer = response
 		}
 		if !cfg.FallbackDirect {
-			return errorAnswer
+			return errorAnswer, false
 		}
 		r.log.emit("warn", "dns: the exit resolver is unavailable, resolving directly")
 	}
+	// cfg.DNS holds the resolvers reached through the exit; the local ones are
+	// cfg.SystemDNS. A failed exit lookup must fall back to the local network,
+	// never to the exit's own list: those addresses belong to the relay, and
+	// asking 1.1.1.1 from this network both leaks the query and gets the answer
+	// of whatever resolver the provider runs on port 53.
 	directCtx, directCancel := context.WithTimeout(ctx, dnsStageTimeout)
-	response := raceResolvers(directCtx, cfg.DNS, query, r.queryDirect, r.log, "direct")
+	response := raceResolvers(directCtx, cfg.SystemDNS, query, r.queryDirect, r.log, "direct")
 	directCancel()
 	if dnsUsable(response) {
-		return response
+		return response, !exitPath
 	}
 	if len(response) > 0 {
 		errorAnswer = response
 	}
-	return errorAnswer
+	if len(cfg.SystemDNS) == 0 {
+		// No resolver of the real network is known: the exit list is the last
+		// resort, even though the answer may not match the path the traffic
+		// takes.
+		directCtx, directCancel := context.WithTimeout(ctx, dnsStageTimeout)
+		response := raceResolvers(directCtx, cfg.DNS, query, r.queryDirect, r.log, "direct")
+		directCancel()
+		if dnsUsable(response) {
+			return response, false
+		}
+		if len(response) > 0 {
+			errorAnswer = response
+		}
+	}
+	return errorAnswer, false
 }
 
 // dnsStageTimeout bounds one group of resolvers. The groups are tried in turn
@@ -306,6 +336,15 @@ func (r *dnsRouter) queryDirect(ctx context.Context, server string, query []byte
 
 func (r *dnsRouter) queryExit(ctx context.Context, server string, query []byte) ([]byte, error) {
 	address := dnsEndpoint(server)
+	// A resolver that lives on a Yggdrasil address (an X-Node publishes its
+	// Alfis server that way) is reached through the node itself. The exit's
+	// relay only carries ordinary internet destinations, and a Yggdrasil
+	// address sent to it is simply unreachable.
+	if host, _, err := net.SplitHostPort(address); err == nil {
+		if ip := net.ParseIP(host); ip != nil && yggRange.Contains(ip) {
+			return r.queryInner(ctx, server, query)
+		}
+	}
 	if r.exit.udpEnabled() {
 		response, err := queryDNSDatagram(ctx, func(ctx context.Context, _, address string) (net.Conn, error) {
 			return r.exit.DialContext(ctx, "udp", address)

@@ -160,8 +160,8 @@ data class ExitProfile(
 data class Settings(
     val peerCount: Int = 3,
     val autoReplace: Boolean = true,
-    val deadPeerTimeoutSec: Int = 45,
-    val healthCheckSec: Int = 15,
+    val deadPeerTimeoutSec: Int = 90,
+    val healthCheckSec: Int = 30,
     val dnsMode: String = DNS_YGGDRASIL,
     val dnsServers: List<String> = DEFAULT_DNS,
     val mtu: Int = 1280,
@@ -281,13 +281,19 @@ data class Settings(
             return try {
                 val o = JSONObject(raw)
                 val d = Settings()
+                val deadRaw = o.optInt("deadPeerTimeoutSec", d.deadPeerTimeoutSec)
+                    .coerceIn(15, 300)
+                val healthRaw = o.optInt("healthCheckSec", d.healthCheckSec)
+                    .coerceIn(5, 120)
+                // The old built-in pair was 45/15. The desktop client and
+                // X-Node use 90/30: a link that is briefly slow must not be
+                // dropped. A pair the user changed is left alone.
+                val oldDefaults = deadRaw == 45 && healthRaw == 15
                 Settings(
                     peerCount = o.optInt("peerCount", d.peerCount).coerceIn(1, 20),
                     autoReplace = o.optBoolean("autoReplace", d.autoReplace),
-                    deadPeerTimeoutSec = o.optInt("deadPeerTimeoutSec", d.deadPeerTimeoutSec)
-                        .coerceIn(15, 300),
-                    healthCheckSec = o.optInt("healthCheckSec", d.healthCheckSec)
-                        .coerceIn(5, 120),
+                    deadPeerTimeoutSec = if (oldDefaults) 90 else deadRaw,
+                    healthCheckSec = if (oldDefaults) 30 else healthRaw,
                     dnsMode = o.optString("dnsMode", d.dnsMode),
                     dnsServers = o.optJSONArray("dnsServers")?.let { arr ->
                         buildList { for (i in 0 until arr.length()) add(arr.optString(i)) }

@@ -129,6 +129,15 @@ type profileHealth struct {
 	CapsKnown  bool
 	DNSAddress string
 	DNSPort    int
+	// DNSState is what the exit resolver is doing: "off", "starting" (Alfis
+	// loads the chain and the panel does not answer yet), "syncing" or
+	// "ready". Empty for an exit from before 1.7.29. DNSSyncPercent is the
+	// download progress of the chain, 0..100.
+	DNSState       string
+	DNSSyncPercent int
+	DNSSyncHave    uint64
+	DNSSyncHeight  uint64
+	DNSNodes       int
 	// udpUnsupportedUntil keeps an exit that answered "command not supported"
 	// out of the UDP failover list for a while, so every DNS query does not pay
 	// for another refused handshake.
@@ -408,9 +417,19 @@ func (m *exitManager) markCapabilities(id string, caps *exitAPICapabilities) {
 		if health.DNSPort <= 0 {
 			health.DNSPort = 53
 		}
+		health.DNSState = strings.TrimSpace(caps.DNSState)
+		health.DNSSyncPercent = caps.DNSSyncPercent
+		health.DNSSyncHave = caps.DNSSyncHave
+		health.DNSSyncHeight = caps.DNSSyncHeight
+		health.DNSNodes = caps.DNSNodes
 	} else {
 		health.DNSAddress = ""
 		health.DNSPort = 0
+		health.DNSState = ""
+		health.DNSSyncPercent = 0
+		health.DNSSyncHave = 0
+		health.DNSSyncHeight = 0
+		health.DNSNodes = 0
 	}
 	allowed := m.ipv6PathLocked()
 	m.mu.Unlock()
@@ -1238,6 +1257,14 @@ type exitProfileStatus struct {
 	DNSAddress string `json:"dnsAddress,omitempty"`
 	DNSPort    int    `json:"dnsPort,omitempty"`
 	DNSKnown   bool   `json:"dnsKnown,omitempty"`
+
+	// The state of the exit resolver. Empty for an exit from before 1.7.29;
+	// the app then treats the resolver as an ordinary one.
+	DNSState       string `json:"dnsState,omitempty"`
+	DNSSyncPercent int    `json:"dnsSyncPercent,omitempty"`
+	DNSSyncHave    uint64 `json:"dnsSyncHave,omitempty"`
+	DNSSyncHeight  uint64 `json:"dnsSyncHeight,omitempty"`
+	DNSNodes       int    `json:"dnsNodes,omitempty"`
 }
 
 // exitQuota mirrors the quota block of the exit status API. Limits are 0 when
@@ -1352,6 +1379,11 @@ func (m *exitManager) statusBase() exitStatus {
 			item.DNSAddress = health.DNSAddress
 			item.DNSPort = health.DNSPort
 			item.DNSKnown = health.CapsKnown
+			item.DNSState = health.DNSState
+			item.DNSSyncPercent = health.DNSSyncPercent
+			item.DNSSyncHave = health.DNSSyncHave
+			item.DNSSyncHeight = health.DNSSyncHeight
+			item.DNSNodes = health.DNSNodes
 		}
 		// Publish a token learned at run time, unless the profile already
 		// carries the same one: the app saves the difference.
@@ -1432,6 +1464,16 @@ type exitAPICapabilities struct {
 	DNS        bool   `json:"dns"`
 	DNSAddress string `json:"dnsAddress,omitempty"`
 	DNSPort    int    `json:"dnsPort,omitempty"`
+
+	// The Alfis resolver downloads the chain on its first start. DNSState
+	// names the phase and DNSSyncPercent carries the progress, so the client
+	// shows "syncing 42%" instead of calling the resolver dead.
+	DNSState       string `json:"dnsState,omitempty"`
+	DNSSyncPercent int    `json:"dnsSyncPercent,omitempty"`
+	DNSSyncHave    uint64 `json:"dnsSyncHave,omitempty"`
+	DNSSyncHeight  uint64 `json:"dnsSyncHeight,omitempty"`
+	DNSNodes       int    `json:"dnsNodes,omitempty"`
+	DNSReady       bool   `json:"dnsReady,omitempty"`
 }
 
 // apiCall performs one HTTP request against the API of an exit through

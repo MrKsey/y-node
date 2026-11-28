@@ -197,6 +197,30 @@ class ExitNodeCard extends StatelessWidget {
               icon: const Icon(Icons.tune_rounded, size: 20),
             ),
           ),
+        if (live &&
+            settings.exitActive &&
+            settings.exitDnsEnabled &&
+            active != null &&
+            active.dnsStarting)
+          ListTile(
+            dense: true,
+            contentPadding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+            leading: const Icon(
+              Icons.sync_rounded,
+              size: 20,
+              color: Colors.orange,
+            ),
+            title: Text(
+              active.dnsSyncPercent > 0
+                  ? l10n.tf('exitDnsSyncing', ['${active.dnsSyncPercent}'])
+                  : l10n.t('exitDnsStarting'),
+              style: theme.textTheme.bodyMedium,
+            ),
+            subtitle: Text(
+              l10n.t('exitDnsSyncingHint'),
+              style: theme.textTheme.bodySmall,
+            ),
+          ),
         if (live && settings.exitActive && quota != null && !quota.isUnlimited)
           _QuotaRow(quota: quota, l10n: l10n),
         if (live && settings.exitActive && status.udp.enabled)

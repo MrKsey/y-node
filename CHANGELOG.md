@@ -4,6 +4,22 @@ All notable changes to Y-Node are documented here. The format is based on [Keep 
 
 The release workflow publishes the section of the tag as the GitHub release body, so every release has a short human-readable summary of what changed. Keep each bullet on a single line: GitHub turns every newline in a release body into a hard break, so a wrapped bullet would render as a narrow column instead of using the full width.
 
+## [1.5.43] — 2026-11-28
+
+### Added
+
+- **The first run explains the battery exemption.** A new onboarding page sits between the identity and the first peer search: it says why Android freezes the tunnel in the background, shows the live state of the exemption and switches it on without leaving the app.
+- **The exit DNS shows how far its chain download has got.** While the Alfis resolver of the exit node downloads the chain, the DNS tile and the exit card read "Starting…" or "Initializing: N%" instead of "Not working", and the tunnel checks the resolver again once the chain is ready, so sites start resolving without a restart.
+
+### Fixed
+
+- **A resolver published on a Yggdrasil address is reached through the node.** An X-Node publishes its Alfis server on a Yggdrasil address, and the exit relay only carries ordinary internet destinations: the exit resolver could not be queried at all, so with the exit DNS switch on ordinary names failed until the fallback answered. The Yggdrasil address now goes to the node itself, the fallback asks the resolvers of the real network instead of the exit's list, and an answer that came from the fallback is not cached.
+
+### Changed
+
+- **The health checks default to 30 seconds and a dead peer to 90.** An existing install keeps its stored values unless they are the old 15 and 45 seconds, which are migrated once: the shorter window replaced links that were merely slow, and a peer that is down is now noticed before the browser gives up.
+- **The peer count stops at 20 and says what is enough.** The slider is capped at twenty peers and the hint under it says that three to five peers are enough for a healthy tree; a stored larger value is clamped on load.
+
 ## [1.5.42] — 2026-11-28
 
 ### Changed
